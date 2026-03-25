@@ -1,38 +1,76 @@
-## Template of Microservices
+## User Microservice
 
-A Docker Compose template for our microservices. It includes a Postgres 15 service, and the Python `web` service communicates with the database using SQLAlchemy.
+Overview
+-
+This atomic microservice manages customer accounts for the Smart Drone Delivery
+platform. It exposes a small REST API for creating accounts, authenticating
+users, and basic CRUD for user profiles. Passwords are stored hashed.
 
-### Contents
+Requirements
+-
+- Python 3.10+ (container uses python:3-slim)
+- `requirements.txt` in this folder lists runtime deps (Flask, Flask-SQLAlchemy,
+	psycopg2-binary)
 
-- `docker-compose.yml` — defines `web` and `db` (Postgres 15) services.
-- `Dockerfile` — build instructions for the `web` image.
-- `app/run.py` — minimal Flask app with a `/db-check` health endpoint that verifies DB communication via SQLAlchemy.
-- `requirements.txt` — Python dependencies.
+Configuration
+-
+- `DATABASE_URL` environment variable (Postgres URI) — the service reads this at
+	startup and uses SQLAlchemy to connect.
 
-### Quickstart
+Database
+-
+Tables are created automatically on first request. If you add/remove model
+columns you must update the database schema (recommended: use Alembic migrations
+in production). Quick local fix examples are in the source README.
 
-1. Build and start the stack:
+HTTP API
+-
+- `GET /db-check` — returns `true` when DB reachable.
+- `POST /users` — create user
+	- Body (required): `name`, `email`, `password`
+	- Optional: `role`, `gender`, `phone`
+	- Response: `201` with `{"success": true, "message": "Account created successfully"}`
+- `POST /validate` — login
+	- Body: `email`, `password`
+	- Response: `200` with user object (password not included) on success, `401` on failure
+- `GET /users/<id>` — fetch user profile (no password returned)
+- `PUT /users/<id>` — update profile (accepts `name`, `email`, `password`, `role`, `gender`, `phone`)
+- `DELETE /users/<id>` — delete user
 
+Examples
+-
+Create user (minimal):
 ```bash
-docker compose up --build
+curl -X POST -H "Content-Type: application/json" \
+	-d '{"name":"Alice","email":"alice@example.com","password":"s3cret"}' \
+	http://localhost:8008/users
 ```
 
-2. Check DB connectivity:
-
+Login:
 ```bash
-curl -i http://localhost:8000/db-check
+curl -X POST -H "Content-Type: application/json" \
+	-d '{"email":"alice@example.com","password":"s3cret"}' \
+	http://localhost:8008/validate
 ```
 
-Expect HTTP 200 and a JSON `true` when the Postgres service is ready.
+Notes
+-
+- Passwords are hashed — the API never returns password hashes.
+- For schema changes in development you can either run `db.drop_all()` /
+	`db.create_all()` or execute `ALTER TABLE` statements to add missing columns.
 
-### Configuration
-
-- The application reads the database URL from the `DATABASE_URL` environment variable (set for the `web` service in `docker-compose.yml`). Example value:
-
+Running
+-
+This service is run in Docker via the repository's `docker-compose.yml`. From
+the `backend` folder:
+```bash
+docker compose up -d --build user
 ```
-postgresql://user:password@db:5432/postgres
-```
 
-### Notes
+Contributing
+-
+Open a PR with tests and, for schema changes, include a migration or the SQL
+required to upgrade existing databases.
 
-- See `app/run.py` for the SQLAlchemy usage and the `/db-check` implementation.
+File: backend/services/atomic/user/app/run.py
+
