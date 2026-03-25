@@ -67,10 +67,4 @@ the `backend` folder:
 docker compose up -d --build user
 ```
 
-Contributing
--
-Open a PR with tests and, for schema changes, include a migration or the SQL
-required to upgrade existing databases.
-
 File: backend/services/atomic/user/app/run.py
-
