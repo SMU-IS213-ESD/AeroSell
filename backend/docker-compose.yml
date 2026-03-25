@@ -1,0 +1,193 @@
+version: '1'
+
+services:
+  kong:
+    image: kong/kong-gateway:3.9.0.1
+    restart: always
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: "/kong/config/config.yml"
+      KONG_PROXY_ACCESS_LOG: "/dev/stdout"
+      KONG_ADMIN_ACCESS_LOG: "/dev/stdout"
+      KONG_PROXY_ERROR_LOG: "/dev/stderr"
+      KONG_ADMIN_ERROR_LOG: "/dev/stderr"
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_ADMIN_GUI_LISTEN: "0.0.0.0:8002"
+      KONG_ADMIN_API_URI: "http://localhost:8881"
+      KONG_ADMIN_GUI_URL: "http://localhost:8882"
+      KONG_ADMIN_ACCESS_CONTROL_ALLOW_ORIGIN: "*"
+
+    ports:
+      - "8880:8000"
+      - "8881:8001"
+      - "8882:8002"
+    volumes:
+      - ./kong:/kong/config
+    networks:
+      - kong-net
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   container_name: rabbitmq
+  #   hostname: foodapp-rabbit
+  #   restart: always
+  #   ports:
+  #     - "5672:5672" # RabbitMQ Client Connection
+  #     - "15672:15672" # RabbitMQ Management UI
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
+  #   networks:
+  #     - kong-net
+
+  db:
+    image: postgres:18
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
+    volumes:
+      - postgre_data:/var/lib/postgresql/data/18
+    networks:
+      - kong-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  document:
+    build: ./services/atomic/document
+    volumes:
+      - ./services/atomic/document/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  drone:
+    build: ./services/atomic/drone
+    volumes:
+      - ./services/atomic/drone/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+  error:
+    build: ./services/atomic/error
+    volumes:
+      - ./services/atomic/error/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8003:8003"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  flight:
+    build: ./services/atomic/flight
+    volumes:
+      - ./services/atomic/flight/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8004:8004"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  operations-support:
+    build: ./services/atomic/operations-support
+    volumes:
+      - ./services/atomic/operations-support/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8005:8005"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  order:
+    build: ./services/atomic/order
+    volumes:
+      - ./services/atomic/order/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8006:8006"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  payment:
+    build: ./services/atomic/payment
+    volumes:
+      - ./services/atomic/payment/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8007:8007"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  user:
+    build: ./services/atomic/user
+    volumes:
+      - ./services/atomic/user/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8008:8008"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+  weather:
+    build: ./services/atomic/weather
+    volumes:
+      - ./services/atomic/weather/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8009:8009"
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+
+networks:
+  kong-net:
+    driver: bridge
+
+volumes:
+  postgre_data:

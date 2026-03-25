@@ -1,0 +1,36 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: drone-service
+    url: http://drone:8002
+    routes:
+      - name: drone-route
+        paths:
+          - /drone
+
+plugins:
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - HEAD
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      headers:
+        - Access-Control-Allow-Origin
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
