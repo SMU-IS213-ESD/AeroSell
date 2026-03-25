@@ -1,5 +1,3 @@
-version: '1'
-
 services:
   kong:
     image: kong/kong-gateway:3.9.0.1
@@ -148,6 +146,7 @@ services:
     build: ./services/atomic/payment
     volumes:
       - ./services/atomic/payment/app:/app
+    env_file: ./services/atomic/payment/app/.env
     networks:
       - kong-net
     ports:
