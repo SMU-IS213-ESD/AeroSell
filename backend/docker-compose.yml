@@ -52,6 +52,7 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - postgre_data:/var/lib/postgresql/data/18
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     networks:
       - kong-net
     healthcheck:
@@ -69,7 +70,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/document_db
     depends_on:
       db:
         condition: service_healthy
@@ -83,7 +84,7 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/drone_db
     depends_on:
       db:
         condition: service_healthy
@@ -96,7 +97,7 @@ services:
     ports:
       - "8003:8003"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/error_db
     depends_on:
       db:
         condition: service_healthy
@@ -110,7 +111,7 @@ services:
     ports:
       - "8004:8004"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/flight_db
     depends_on:
       db:
         condition: service_healthy
@@ -124,7 +125,7 @@ services:
     ports:
       - "8005:8005"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/operations_support_db
     depends_on:
       db:
         condition: service_healthy
@@ -138,7 +139,7 @@ services:
     ports:
       - "8006:8006"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/order_db
     depends_on:
       db:
         condition: service_healthy
@@ -152,7 +153,7 @@ services:
     ports:
       - "8007:8007"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/payment_db
     depends_on:
       db:
         condition: service_healthy
@@ -166,7 +167,7 @@ services:
     ports:
       - "8008:8008"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/user_db
     depends_on:
       db:
         condition: service_healthy
@@ -180,7 +181,7 @@ services:
     ports:
       - "8009:8009"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/weather_db
     depends_on:
       db:
         condition: service_healthy
