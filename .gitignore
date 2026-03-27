@@ -1,2 +1,4 @@
 backend/services/atomic/payment/app/.env
 frontend/Aerosell/.env
+.venv/
+.env
