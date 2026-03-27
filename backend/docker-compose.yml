@@ -20,6 +20,7 @@ services:
       - "8880:8000"
       - "8881:8001"
       - "8882:8002"
+      - "8887:8007"
     volumes:
       - ./kong:/kong/config
     networks:

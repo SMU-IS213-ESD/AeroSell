@@ -2,12 +2,68 @@ _format_version: "3.0"
 _transform: true
 
 services:
+  - name: document-service
+    url: http://document:8001
+    routes:
+      - name: document-route
+        paths:
+          - /document
+
   - name: drone-service
     url: http://drone:8002
     routes:
       - name: drone-route
         paths:
           - /drone
+
+  - name: error-service
+    url: http://error:8003
+    routes:
+      - name: error-route
+        paths:
+          - /error
+
+  - name: flight-service
+    url: http://flight:8004
+    routes:
+      - name: flight-route
+        paths:
+          - /flight
+
+  - name: operations-support-service
+    url: http://operations-support:8005
+    routes:
+      - name: operations-support-route
+        paths:
+          - /operations-support
+
+  - name: order-service
+    url: http://order:8006
+    routes:
+      - name: order-route
+        paths:
+          - /order
+
+  - name: payment-service
+    url: http://payment:8007
+    routes:
+      - name: payment-route
+        paths:
+          - /payment
+
+  - name: user-service
+    url: http://user:8008
+    routes:
+      - name: user-route
+        paths:
+          - /user
+
+  - name: weather-service
+    url: http://weather:8009
+    routes:
+      - name: weather-route
+        paths:
+          - /weather
 
 plugins:
   - name: rate-limiting
