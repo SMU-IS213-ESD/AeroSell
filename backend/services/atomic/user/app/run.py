@@ -77,7 +77,7 @@ def ensure_tables():
 		app.logger.exception("Failed creating database tables")
 
 
-@app.route("/users", methods=["POST"])
+@app.route("/register", methods=["POST"])
 def create_user():
 	data = request.get_json(force=True, silent=True)
 	if not data:
@@ -106,7 +106,7 @@ def create_user():
 	return jsonify({"success": True, "message": "Account created successfully"}), 201
 
 
-@app.route("/users/<int:user_id>", methods=["GET"])
+@app.route("/<int:user_id>", methods=["GET"])
 def get_user(user_id: int):
 	user = User.query.get(user_id)
 	if not user:
@@ -116,7 +116,7 @@ def get_user(user_id: int):
 	return jsonify(out), 200
 
 
-@app.route("/users/<int:user_id>", methods=["PUT"])
+@app.route("/<int:user_id>", methods=["PUT"])
 def update_user(user_id: int):
 	user = User.query.get(user_id)
 	if not user:
@@ -154,7 +154,7 @@ def update_user(user_id: int):
 	return jsonify(out), 200
 
 
-@app.route("/users/<int:user_id>", methods=["DELETE"])
+@app.route("/<int:user_id>", methods=["DELETE"])
 def delete_user(user_id: int):
 	user = User.query.get(user_id)
 	if not user:
@@ -169,7 +169,7 @@ def delete_user(user_id: int):
 	return jsonify({"deleted": True}), 200
 
 
-@app.route("/validate", methods=["POST"])
+@app.route("/login", methods=["POST"])
 def validate_user():
 	data = request.get_json(force=True, silent=True)
 	if not data:

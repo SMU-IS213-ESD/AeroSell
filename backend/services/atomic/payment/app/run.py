@@ -80,7 +80,7 @@ def ensure_tables():
 		app.logger.exception("Failed creating database tables")
 
 
-@app.route("/payments", methods=["POST"])
+@app.route("/", methods=["POST"])
 def create_payment():
 	"""Create and process a payment.
 
@@ -142,7 +142,7 @@ def create_payment():
 		return jsonify({"error": "internal error"}), 500
 
 
-@app.route("/payments/<int:payment_id>", methods=["GET"])
+@app.route("/<int:payment_id>", methods=["GET"])
 def get_payment(payment_id: int):
 	p = Payment.query.get(payment_id)
 	if not p:
@@ -150,7 +150,7 @@ def get_payment(payment_id: int):
 	return jsonify(p.to_dict()), 200
 
 
-@app.route("/payments", methods=["GET"])
+@app.route("/", methods=["GET"])
 def list_payments():
 	# optional filter by order_id
 	try:
@@ -174,7 +174,7 @@ def list_payments():
 	return jsonify({"payments": items, "page": page, "per_page": per_page, "total": pagination.total}), 200
 
 
-@app.route("/payments/webhook", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def stripe_webhook():
 	"""Handle Stripe webhooks to update payment status."""
 	payload = request.data
@@ -215,7 +215,7 @@ def stripe_webhook():
 	return jsonify({"received": True}), 200
 
 
-@app.route("/payments/<int:payment_id>/status", methods=["PUT"])
+@app.route("/<int:payment_id>/status", methods=["PUT"])
 def update_payment_status(payment_id: int):
 	p = Payment.query.get(payment_id)
 	if not p:
