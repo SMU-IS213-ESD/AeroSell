@@ -101,10 +101,10 @@ services:
       db:
         condition: service_healthy
 
-  flight:
-    build: ./services/atomic/flight
+  flight-planning:
+    build: ./services/atomic/flight-planning
     volumes:
-      - ./services/atomic/flight/app:/app
+      - ./services/atomic/flight-planning/app:/app
     networks:
       - kong-net
     ports:
