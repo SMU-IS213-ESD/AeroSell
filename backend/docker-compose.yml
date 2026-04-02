@@ -59,6 +59,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
   
   document:
     build: ./services/atomic/document
@@ -174,16 +185,17 @@ services:
 
   weather:
     build: ./services/atomic/weather
-    volumes:
-      - ./services/atomic/weather/app:/app
     networks:
       - kong-net
     ports:
       - "8009:8009"
+    env_file:
+      - ./services/atomic/weather/.env
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/weather_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     depends_on:
-      db:
+      redis:
         condition: service_healthy
 
 networks:
