@@ -113,9 +113,9 @@ services:
         condition: service_healthy
 
   flight-planning:
-    build: ./services/atomic/flight-planning-microservices
+    build: ./services/atomic/flight-planning
     volumes:
-      - ./services/atomic/flight-planning-microservices/app:/app
+      - ./services/atomic/flight-planning/app:/app
     networks:
       - kong-net
     ports:
@@ -204,3 +204,4 @@ networks:
 
 volumes:
   postgre_data:
+  # rabbitmq_data:

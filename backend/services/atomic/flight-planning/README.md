@@ -25,7 +25,7 @@ It is called by the **Book Drone Composite Service** (to check feasibility befor
 ## Project Structure
 
 ```
-flight-planning-microservices/
+flight-planning/
 ├── run.py                              # Entry point
 ├── app/
 │   ├── __init__.py                     # App factory
