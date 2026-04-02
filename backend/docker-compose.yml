@@ -113,9 +113,9 @@ services:
         condition: service_healthy
 
   flight-planning:
-    build: ./services/atomic/flight-planning
+    build: ./services/atomic/flight-planning-microservices
     volumes:
-      - ./services/atomic/flight-planning/app:/app
+      - ./services/atomic/flight-planning-microservices/app:/app
     networks:
       - kong-net
     ports:
