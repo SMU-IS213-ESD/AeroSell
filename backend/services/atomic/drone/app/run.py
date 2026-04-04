@@ -95,7 +95,14 @@ def db_check():
 		app.logger.exception("Database connectivity check failed")
 		return jsonify(False), 500
 
-
+# GET /drones/<int:drone_id> - get a single drone by ID
+@app.route("/drones/<int:drone_id>", methods=["GET"])
+def get_drone(drone_id):
+	drone = Drone.query.get(drone_id)
+	if not drone:
+		return jsonify({"error": "Drone not found"}), 404
+	return jsonify(drone.json()), 200
+	
 # GET /drones - get all drones
 @app.route("/drones", methods=["GET"])
 def get_all_drones():
