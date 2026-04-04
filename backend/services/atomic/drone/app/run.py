@@ -17,7 +17,7 @@ import pika
 
 def get_rabbitmq_connection():
 	"""Establish and return a RabbitMQ connection and channel."""
-	rabbitmq_url = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+	rabbitmq_url = os.environ.get("RABBITMQ_URL", "amqp:rmqbroker.dodieboy.qzz.io")
 	params = pika.URLParameters(rabbitmq_url)
 	connection = pika.BlockingConnection(params)
 	channel = connection.channel()
@@ -218,14 +218,20 @@ def execute_sql_file(sql_path):
 	with db.engine.connect() as connection:
 		for statement in sql_statements.split(';'):
 			stmt = statement.strip()
-			if stmt:
-				connection.execute(text(stmt))
+			# Skip empty statements and statements that are only comments
+			if not stmt:
+				continue
+			# If all lines in the statement are comments or blank, skip
+			if all(line.strip().startswith('--') or not line.strip() for line in stmt.splitlines()):
+				continue
+			connection.execute(text(stmt))
 
 
 if __name__ == "__main__":
 	# execute the SQL file to create tables and insert initial data
-	sql_file_path = os.path.join(os.path.dirname(__file__), 'drone.sql')
-	execute_sql_file(sql_file_path)
+	with app.app_context():
+		sql_file_path = os.path.join(os.path.dirname(__file__), 'drone.sql')
+		execute_sql_file(sql_file_path)
 	app.run(host="0.0.0.0", port=8002)
 
 
