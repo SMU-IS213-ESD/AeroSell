@@ -1,8 +1,11 @@
-from flask import Flask, jsonify, request
+from apiflask import APIFlask, Schema, abort
+from apiflask.fields import Integer, String, Float
+from flask import jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 import os
-app = Flask(__name__)
+
+app = APIFlask(__name__)
 db_url = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -17,7 +20,7 @@ import pika
 
 def get_rabbitmq_connection():
 	"""Establish and return a RabbitMQ connection and channel."""
-	rabbitmq_url = os.environ.get("RABBITMQ_URL", "amqp:rmqbroker.dodieboy.qzz.io")
+	rabbitmq_url = os.environ.get("RABBITMQ_URL", "amqp://rmqbroker.dodieboy.qzz.io")
 	params = pika.URLParameters(rabbitmq_url)
 	connection = pika.BlockingConnection(params)
 	channel = connection.channel()
@@ -38,6 +41,7 @@ def publish_message(exchange, routing_key, body, properties=None):
 		connection.close()
 
 
+
 class Drone(db.Model):
 	__tablename__ = 'drones'
 	id = db.Column(db.Integer, primary_key=True)
@@ -45,8 +49,6 @@ class Drone(db.Model):
 	status = db.Column(db.String(50), nullable=False)
 	current_longitude = db.Column(db.Float, nullable=False)
 	current_latitude = db.Column(db.Float, nullable=False)
-
-	# telemetry = db.relationship('Telemetry', backref='drone', cascade="all, delete-orphan", lazy=True)
 
 	def json(self):
 		return {
@@ -56,6 +58,14 @@ class Drone(db.Model):
 			'current_longitude': self.current_longitude,
 			'current_latitude': self.current_latitude
 		}
+
+# --- APIFlask Schema for Drone ---
+class DroneOut(Schema):
+	id = Integer()
+	battery_level = Integer()
+	status = String()
+	current_longitude = Float()
+	current_latitude = Float()
 
 
 
@@ -80,6 +90,7 @@ class Drone(db.Model):
 
 
 @app.route("/db-check", methods=["GET"])
+@app.doc(tags=["Health Check"])
 def db_check():
 	"""Return JSON true if a simple DB query succeeds, otherwise false.
 
@@ -95,56 +106,73 @@ def db_check():
 		app.logger.exception("Database connectivity check failed")
 		return jsonify(False), 500
 
-# GET /drones/<int:drone_id> - get a single drone by ID
-@app.route("/drones/<int:drone_id>", methods=["GET"])
+
+# GET /drones/<int:drone_id> - get a single drone by ID (APIFlask style)
+@app.get("/drones/<int:drone_id>")
+@app.doc(tags=["Drones"])
+@app.output(DroneOut)
 def get_drone(drone_id):
 	drone = Drone.query.get(drone_id)
 	if not drone:
-		return jsonify({"error": "Drone not found"}), 404
-	return jsonify(drone.json()), 200
+		abort(404, "Drone not found")
+	return drone
 	
+
 # GET /drones - get all drones
-@app.route("/drones", methods=["GET"])
+from typing import List
+@app.get("/drones")
+@app.doc(tags=["Drones"])
+@app.output(List[DroneOut])
 def get_all_drones():
 	try:
 		drones = Drone.query.all()
 	except Exception as e:
 		app.logger.exception("Failed to get all drones")
-		return jsonify({"error": "Internal server error", "details": str(e)}), 500
-	return jsonify([drone.json() for drone in drones]), 200
+		abort(500, "Internal server error")
+	return drones
+
 
 # GET /drones/available - get all available drones
-@app.route("/drones/available", methods=["GET"])
+@app.get("/drones/available")
+@app.doc(tags=["Drones"])
+@app.output(List[DroneOut])
 def get_available_drones():
 	try:
 		drones = Drone.query.filter_by(status='available').all()
 	except Exception as e:
 		app.logger.exception("Failed to get available drones")
-		return jsonify({"error": "Internal server error", "details": str(e)}), 500
-	return jsonify([drone.json() for drone in drones]), 200
+		abort(500, "Internal server error")
+	return drones
 
-@app.route("/drones/activate/<int:drone_id>", methods=["POST"])
+
+@app.post("/drones/activate/<int:drone_id>")
+@app.doc(tags=["Drones"])
+@app.output(DroneOut)
 def activate_drone(drone_id):
 	drone = Drone.query.get(drone_id)
 	if not drone:
-		return jsonify({"error": "Drone not found"}), 404
+		abort(404, "Drone not found")
 	try:
 		drone.status = "in-flight"
 		db.session.commit()
 	except Exception as e:
 		app.logger.exception(f"Failed to activate drone {drone_id}")
-		return jsonify({"error": "Internal server error", "details": str(e)}), 500
-	return jsonify(drone.json()), 200
+		abort(500, "Internal server error")
+	return drone
 
-@app.route("/drones", methods=["POST"])
+
+@app.post("/drones")
+@app.output(DroneOut, status_code=201)
+@app.doc(tags=["Drones"])
+
 def create_drone():
 	data = request.get_json(silent=True)
 	if data is None:
-		return jsonify({"error": "Invalid or missing JSON in request body"}), 400
+		abort(400, "Invalid or missing JSON in request body")
 	required_fields = ["battery_level", "status", "current_longitude", "current_latitude"]
 	missing_fields = [field for field in required_fields if field not in data]
 	if missing_fields:
-		return jsonify({"error": f"Missing required fields: {', '.join(missing_fields)}"}), 400
+		abort(400, f"Missing required fields: {', '.join(missing_fields)}")
 	# Basic type validation
 	try:
 		battery_level = int(data["battery_level"])
@@ -152,7 +180,7 @@ def create_drone():
 		current_longitude = float(data["current_longitude"])
 		current_latitude = float(data["current_latitude"])
 	except (ValueError, TypeError, KeyError) as e:
-		return jsonify({"error": "Invalid field types", "details": str(e)}), 400
+		abort(400, f"Invalid field types: {str(e)}")
 	try:
 		drone = Drone(
 			battery_level=battery_level,
@@ -164,18 +192,21 @@ def create_drone():
 		db.session.commit()
 	except Exception as e:
 		app.logger.exception("Failed to create drone")
-		return jsonify({"error": "Internal server error", "details": str(e)}), 500
-	return jsonify(drone.json()), 201
+		abort(500, "Internal server error")
+	return drone
 
 # PATCH /drones/<int:drone_id> - update specific drone
-@app.route("/drones/<int:drone_id>", methods=["PATCH"])
+
+@app.patch("/drones/<int:drone_id>")
+@app.doc(tags=["Drones"])
+@app.output(DroneOut)
 def update_drone(drone_id):
 	drone = Drone.query.get(drone_id)
 	if not drone:
-		return jsonify({"error": "Drone not found"}), 404
+		abort(404, "Drone not found")
 	data = request.get_json(silent=True)
 	if data is None:
-		return jsonify({"error": "Invalid or missing JSON in request body"}), 400
+		abort(400, "Invalid or missing JSON in request body")
 	allowed_fields = {"battery_level", "status", "current_longitude", "current_latitude"}
 	updated = False
 	for field in allowed_fields:
@@ -190,31 +221,34 @@ def update_drone(drone_id):
 					setattr(drone, field, str(data[field]))
 				updated = True
 			except (ValueError, TypeError) as e:
-				return jsonify({"error": f"Invalid type for field '{field}'", "details": str(e)}), 400
+				abort(400, f"Invalid type for field '{field}': {str(e)}")
 	if updated:
 		try:
 			db.session.commit()
 		except Exception as e:
 			app.logger.exception(f"Failed to update drone {drone_id}")
-			return jsonify({"error": "Internal server error", "details": str(e)}), 500
-		return jsonify(drone.json()), 200
+			abort(500, "Internal server error")
+		return drone
 	else:
-		return jsonify({"error": "No valid fields to update"}), 400
+		abort(400, "No valid fields to update")
 
 
-# DELETE /drones/<int:drone_id> - delete a specific drone
-@app.route("/drones/<int:drone_id>", methods=["DELETE"])
+
+# DELETE /drones/<int:drone_id> - delete a specific drone (APIFlask style)
+@app.delete("/drones/<int:drone_id>")
+@app.doc(tags=["Drones"])
+@app.output({"message": String()}, status_code=200)
 def delete_drone(drone_id):
-	drone = Drone.query.get(drone_id)
-	if not drone:
-		return jsonify({"error": "Drone not found"}), 404
-	try:
-		db.session.delete(drone)
-		db.session.commit()
-	except Exception as e:
-		app.logger.exception(f"Failed to delete drone {drone_id}")
-		return jsonify({"error": "Internal server error", "details": str(e)}), 500
-	return jsonify({"message": f"Drone {drone_id} deleted"}), 200
+    drone = Drone.query.get(drone_id)
+    if not drone:
+        abort(404, "Drone not found")
+    try:
+        db.session.delete(drone)
+        db.session.commit()
+    except Exception as e:
+        app.logger.exception(f"Failed to delete drone {drone_id}")
+        abort(500, "Internal server error")
+    return {"message": f"Drone {drone_id} deleted"}
 
 
 
