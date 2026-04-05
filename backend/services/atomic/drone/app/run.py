@@ -1,10 +1,33 @@
+# --- Wait for RabbitMQ to be ready ---
+def wait_for_rabbitmq(max_retries=15, delay=2):
+	import pika
+	rabbitmq_url = os.environ.get("RABBITMQ_URL")
+	print(f"[Startup] Waiting for RabbitMQ at {rabbitmq_url}")
+	for i in range(max_retries):
+		try:
+			params = pika.URLParameters(rabbitmq_url)
+			conn = pika.BlockingConnection(params)
+			ch = conn.channel()
+			ch.queue_declare(queue='test_amqp_wait', durable=True)
+			ch.close()
+			conn.close()
+			print("[Startup] RabbitMQ is ready!")
+			return True
+		except Exception as e:
+			print(f"[Startup] Waiting for RabbitMQ... ({i+1}/{max_retries}) - {e}")
+			time.sleep(delay)
+	raise RuntimeError("RabbitMQ not available after retries")
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import Integer, String, Float
 from flask import jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 import os
-
+import time
+import threading
+import json
+import requests
 app = APIFlask(__name__)
 db_url = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
@@ -16,32 +39,60 @@ db = SQLAlchemy(app)
 
 
 # RabbitMQ (AMQP) setup
+
+# --- RabbitMQ (AMQP) persistent connection setup ---
 import pika
 
-def get_rabbitmq_connection():
-	"""Establish and return a RabbitMQ connection and channel."""
-	rabbitmq_url = os.environ.get("RABBITMQ_URL", "amqp://rmqbroker.dodieboy.qzz.io")
+rabbitmq_connection = None
+rabbitmq_channel = None
+
+def open_rabbitmq_connection():
+	"""Open and store a persistent RabbitMQ connection and channel."""
+	global rabbitmq_connection, rabbitmq_channel
+	rabbitmq_url = os.environ.get("RABBITMQ_URL")
 	params = pika.URLParameters(rabbitmq_url)
-	connection = pika.BlockingConnection(params)
-	channel = connection.channel()
-	return connection, channel
+
+	try:
+		rabbitmq_connection = pika.BlockingConnection(params)
+		rabbitmq_channel = rabbitmq_connection.channel()
+	except Exception as e:
+		app.logger.exception("Failed to connect to RabbitMQ")
+		print("Failed to connect to RabbitMQ!")
+		print("Exception type:", type(e))
+		print("Exception:", e)
+
+def close_rabbitmq_connection(e=None):
+	"""Close the persistent RabbitMQ connection and channel."""
+	global rabbitmq_connection, rabbitmq_channel
+	if rabbitmq_channel:
+		try:
+			rabbitmq_channel.close()
+		except Exception:
+			pass
+		rabbitmq_channel = None
+	if rabbitmq_connection:
+		try:
+			rabbitmq_connection.close()
+		except Exception:
+			pass
+		rabbitmq_connection = None
 
 def publish_message(exchange, routing_key, body, properties=None):
-	"""Publish a message to RabbitMQ."""
-	connection, channel = get_rabbitmq_connection()
-	try:
-		channel.basic_publish(
-			exchange=exchange,
-			routing_key=routing_key,
-			body=body,
-			properties=properties
-		)
-	finally:
-		channel.close()
-		connection.close()
+	"""Publish a message to RabbitMQ using persistent connection."""
+	global rabbitmq_channel
+	if rabbitmq_channel is None:
+		raise RuntimeError("RabbitMQ channel is not initialized.")
+	rabbitmq_channel.basic_publish(
+		exchange=exchange,
+		routing_key=routing_key,
+		body=body,
+		properties=properties
+	)
+
+# sqlalchemy model
 
 
-
+# sqlalchemy model
 class Drone(db.Model):
 	__tablename__ = 'drones'
 	id = db.Column(db.Integer, primary_key=True)
@@ -59,6 +110,22 @@ class Drone(db.Model):
 			'current_latitude': self.current_latitude
 		}
 
+	# --- Telemetry Model ---
+class Telemetry(db.Model):
+	__tablename__ = 'telemetry'
+	id = db.Column(db.Integer, primary_key=True)
+	drone_id = db.Column(db.Integer, db.ForeignKey('drones.id', ondelete="CASCADE"), nullable=False)
+	timestamp = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
+	progress = db.Column(db.Integer, nullable=False) 
+
+	def json(self):
+		return {
+			'id': self.id,
+			'drone_id': self.drone_id,
+			'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+			'progress': self.progress,
+		}
+
 # --- APIFlask Schema for Drone ---
 class DroneOut(Schema):
 	id = Integer()
@@ -67,27 +134,82 @@ class DroneOut(Schema):
 	current_longitude = Float()
 	current_latitude = Float()
 
+# --- AMQP Consumer Thread ---
+
+def telemetry_callback(ch, method, properties, body):
+	try:
+		data = json.loads(body)
+		print("[Telemetry] Received:", data, flush=True)
+		drone_id = data.get("drone_id")
+		progress = data.get("progress")
+		# Update telemetry table
+		with app.app_context():
+			drone = Drone.query.get(drone_id)
+			if drone:
+				# Optionally update drone status based on progress
+				if progress == 100:
+					drone.status = "landed"
+				db.session.commit()
+			# Insert telemetry record
+			telemetry = Telemetry(drone_id=drone_id, progress=progress)
+			db.session.add(telemetry)
+			db.session.commit()
+	except Exception as e:
+		app.logger.exception("Failed to process telemetry message")
+
+def flight_update_callback(ch, method, properties, body):
+	try:
+		data = json.loads(body)
+		print("[Flight Update] Received:", data)
+		drone_id = data.get("drone_id")
+		status = data.get("status")
+		with app.app_context():
+			#TODO: publish event to let composite svc know that drone has landed,
+			# the idea is that it tells the composite svc that its done, it updates the ui,
+			#when the customer collect and confirm delivery on the ui, then the composite svc will 
+			# 1. update order status tp complete via http
+			# 2. update drone status to available also via http
+			drone = Drone.query.get(drone_id)
+			if drone and status:
+				drone.status = status
+				db.session.commit()
+	except Exception as e:
+		app.logger.exception("Failed to process flight_update message")
 
 
-# class Telemetry(db.Model):
-# 	__tablename__ = 'telemetry'
-# 	id = db.Column(db.Integer, primary_key=True)
-# 	drone_id = db.Column(db.Integer, db.ForeignKey('drones.id', ondelete="CASCADE"), nullable=False)
-# 	timestamp = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
-# 	longitude = db.Column(db.Float, nullable=False)
-# 	latitude = db.Column(db.Float, nullable=False)
-# 	altitude = db.Column(db.Float, nullable=False)
-#
-# 	def json(self):
-# 		return {
-# 			'id': self.id,
-# 			'drone_id': self.drone_id,
-# 			'timestamp': self.timestamp.isoformat() if self.timestamp else None,
-# 			'longitude': self.longitude,
-# 			'latitude': self.latitude,
-# 			'altitude': self.altitude
-# 		}
 
+def amqp_consumer_thread():
+	import pika
+	rabbitmq_url = os.environ.get("RABBITMQ_URL")
+	while True:
+		connection = None
+		channel = None
+		try:
+			params = pika.URLParameters(rabbitmq_url)
+			connection = pika.BlockingConnection(params)
+			channel = connection.channel()
+			# Declare queues (idempotent)
+			channel.queue_declare(queue='telemetry', durable=True)
+			channel.queue_declare(queue='flight_update', durable=True)
+			# Set up consumers
+			channel.basic_consume(queue='telemetry', on_message_callback=telemetry_callback, auto_ack=True)
+			channel.basic_consume(queue='flight_update', on_message_callback=flight_update_callback, auto_ack=True)
+			print("[AMQP] Started consuming telemetry and flight_update queues...")
+			channel.start_consuming()
+		except Exception as e:
+			app.logger.exception("AMQP consumer thread crashed, retrying in 5s...")
+			time.sleep(5)
+		finally:
+			if channel:
+				try:
+					channel.close()
+				except Exception:
+					pass
+			if connection:
+				try:
+					connection.close()
+				except Exception:
+					pass
 
 @app.route("/db-check", methods=["GET"])
 @app.doc(tags=["Health Check"])
@@ -112,7 +234,7 @@ def db_check():
 @app.doc(tags=["Drones"])
 @app.output(DroneOut)
 def get_drone(drone_id):
-	drone = Drone.query.get(drone_id)
+	drone = db.session.get(Drone, drone_id)
 	if not drone:
 		abort(404, "Drone not found")
 	return drone
@@ -144,14 +266,31 @@ def get_available_drones():
 		abort(500, "Internal server error")
 	return drones
 
+#TODO: update endpoint such that it will call the simulate_drone.py activate endpoint
+
+import requests
 
 @app.post("/drones/activate/<int:drone_id>")
 @app.doc(tags=["Drones"])
 @app.output(DroneOut)
+
 def activate_drone(drone_id):
-	drone = Drone.query.get(drone_id)
+	drone = db.session.get(Drone, drone_id)
 	if not drone:
 		abort(404, "Drone not found")
+	# Accept order_info from request body
+	order_info = request.get_json(silent=True)
+	if not order_info:
+		abort(400, "Missing or invalid JSON body for order_info")
+	# Optionally, validate required fields here
+	sim_url = os.environ.get("SIMULATE_DRONE_URL", "http://drone-sim:8010/dronesim/activate")
+	try:
+		# POST to the simulate_drone.py service
+		sim_response = requests.post(f"{sim_url}/{drone_id}", json=order_info)
+		if sim_response.status_code != 200:
+			app.logger.error(f"Simulate drone activate failed: {sim_response.text}")
+	except Exception as e:
+		app.logger.exception(f"Failed to call simulate_drone.py for drone {drone_id}")
 	try:
 		drone.status = "in-flight"
 		db.session.commit()
@@ -164,7 +303,6 @@ def activate_drone(drone_id):
 @app.post("/drones")
 @app.output(DroneOut, status_code=201)
 @app.doc(tags=["Drones"])
-
 def create_drone():
 	data = request.get_json(silent=True)
 	if data is None:
@@ -201,7 +339,7 @@ def create_drone():
 @app.doc(tags=["Drones"])
 @app.output(DroneOut)
 def update_drone(drone_id):
-	drone = Drone.query.get(drone_id)
+	drone = db.session.get(Drone, drone_id)
 	if not drone:
 		abort(404, "Drone not found")
 	data = request.get_json(silent=True)
@@ -239,16 +377,16 @@ def update_drone(drone_id):
 @app.doc(tags=["Drones"])
 @app.output({"message": String()}, status_code=200)
 def delete_drone(drone_id):
-    drone = Drone.query.get(drone_id)
-    if not drone:
-        abort(404, "Drone not found")
-    try:
-        db.session.delete(drone)
-        db.session.commit()
-    except Exception as e:
-        app.logger.exception(f"Failed to delete drone {drone_id}")
-        abort(500, "Internal server error")
-    return {"message": f"Drone {drone_id} deleted"}
+	drone = db.session.get(Drone, drone_id)
+	if not drone:
+		abort(404, "Drone not found")
+	try:
+		db.session.delete(drone)
+		db.session.commit()
+	except Exception as e:
+		app.logger.exception(f"Failed to delete drone {drone_id}")
+		abort(500, "Internal server error")
+	return {"message": f"Drone {drone_id} deleted"}
 
 
 
@@ -267,13 +405,47 @@ def execute_sql_file(sql_path):
 				continue
 			connection.execute(text(stmt))
 
+@app.teardown_appcontext
+def shutdown(response_or_exc=None):
+	close_rabbitmq_connection()
+
+
+def wait_for_db(max_retries=10, delay=2):
+    for i in range(max_retries):
+        try:
+            db.session.execute(text("SELECT 1"))
+            return True
+        except OperationalError:
+            print(f"Waiting for DB... ({i+1}/{max_retries})")
+            time.sleep(delay)
+    raise RuntimeError("Database not available after retries")
+
 
 if __name__ == "__main__":
-	# execute the SQL file to create tables and insert initial data
 	with app.app_context():
-		sql_file_path = os.path.join(os.path.dirname(__file__), 'drone.sql')
-		execute_sql_file(sql_file_path)
+		wait_for_db()  # Wait for DB to be ready before proceeding
+		db.create_all()  # Create tables if they don't exist
+
+		# Insert dummy drones if not already present
+		if Drone.query.count() == 0:
+			drones = [
+				Drone(id=1, battery_level=100, status='available', current_longitude=-122.4194, current_latitude=37.7749),
+				Drone(id=2, battery_level=100, status='maintenance', current_longitude=-122.4194, current_latitude=37.7749),
+				Drone(id=3, battery_level=100, status='available', current_longitude=-122.4194, current_latitude=37.7749),
+			]
+			db.session.bulk_save_objects(drones)
+			db.session.commit()
+
+		wait_for_rabbitmq()  # Wait for RabbitMQ to be ready before proceeding
+		open_rabbitmq_connection()
+		# Start AMQP consumer thread
+		consumer_thread = threading.Thread(target=amqp_consumer_thread, daemon=True)
+		consumer_thread.start()
+
 	app.run(host="0.0.0.0", port=8002)
+
+
+
 
 
 
@@ -286,6 +458,7 @@ if __name__ == "__main__":
 #     body='{"drone_id": 1, "status": "in-flight"}',
 #     properties=BasicProperties(content_type='application/json')
 # )
+
 
 # This will publish a JSON message to the 'drone_status' queue.
 

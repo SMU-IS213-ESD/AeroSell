@@ -6,17 +6,14 @@ CREATE TABLE IF NOT EXISTS drones (
 	current_latitude FLOAT NOT NULL
 );
 
--- telemetry table will be moved to separate composite microservice, commented out for now
 
--- CREATE TABLE IF NOT EXISTS telemetry (
--- 	id SERIAL PRIMARY KEY,
--- 	drone_id INTEGER NOT NULL,
--- 	timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
--- 	longitude FLOAT NOT NULL,
--- 	latitude FLOAT NOT NULL,
--- 	altitude FLOAT NOT NULL,
--- 	FOREIGN KEY (drone_id) REFERENCES drones(id) ON DELETE CASCADE
--- );
+CREATE TABLE IF NOT EXISTS telemetry (
+	id SERIAL PRIMARY KEY,
+	drone_id INTEGER NOT NULL,
+	timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	progress INTEGER NOT NULL, 
+	FOREIGN KEY (drone_id) REFERENCES drones(id) ON DELETE CASCADE
+);
 
 INSERT INTO drones (id, battery_level, status, current_longitude, current_latitude) VALUES
 (1,100, 'available', -122.4194, 37.7749),
@@ -26,4 +23,4 @@ ON CONFLICT (id) DO NOTHING;
 
 
 
--- CREATE INDEX IF NOT EXISTS idx_telemetry_drone_id ON telemetry(drone_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_drone_id ON telemetry(drone_id);
