@@ -55,7 +55,7 @@ services:
     networks:
       - kong-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -U user -d postgres && psql -U user -d postgres -c 'SELECT 1;'"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -95,6 +95,7 @@ services:
       - "8002:8002"
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/drone_db
+      - RABBITMQ_URL=${RABBITMQ_URL}
     depends_on:
       db:
         condition: service_healthy
@@ -197,6 +198,15 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  drone-sim:
+    build: ./services/atomic/drone/sim
+    networks:
+      - kong-net
+    ports:
+      - "8010:8010"
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
 
 networks:
   kong-net:
