@@ -47,8 +47,7 @@ class SupportStaff(db.Model):
 
 
 # Assignment model
-from datetime import datetime
-
+import datetime as dt
 class Assignment(db.Model):
 	__tablename__ = 'assignments'
 	id = db.Column(db.Integer, primary_key=True)
@@ -56,7 +55,7 @@ class Assignment(db.Model):
 	drone_id = db.Column(db.Integer, nullable=False)
 	longitude = db.Column(db.Float, nullable=False)
 	latitude = db.Column(db.Float, nullable=False)
-	timestamp = db.Column(db.DateTime, default=datetime.now(datetime.UTC), nullable=False)
+	timestamp = db.Column(db.DateTime, default=dt.datetime.now(dt.UTC), nullable=False)
 	status = db.Column(db.String(20), default="pending", nullable=False)  # 'pending' or 'done'
 
 	staff = db.relationship('SupportStaff', backref='assignments')
