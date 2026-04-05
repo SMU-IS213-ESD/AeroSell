@@ -74,6 +74,7 @@ const submit = async () => {
         Password
         <input v-model="form.password" type="password" minlength="6" required />
       </label>
+      <p class="muted small" style="margin-top:4px">Don't have an account? <RouterLink to="/register">Register</RouterLink></p>
       <button class="btn btn-primary" type="submit" :disabled="loading">
         {{ loading ? 'Signing in...' : 'Login' }}
       </button>
