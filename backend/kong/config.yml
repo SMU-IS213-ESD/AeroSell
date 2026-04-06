@@ -64,6 +64,13 @@ services:
       - name: weather-route
         paths:
           - /weather
+  
+  - name: book-drone-service
+    url: http://book-drone:8101
+    routes:
+      - name: book-drone-route
+        paths:
+          - /book-drone
 
 plugins:
   - name: rate-limiting

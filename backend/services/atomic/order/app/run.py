@@ -195,6 +195,38 @@ def update_status(order_id):
     publish_status_event(order.id, order.status)
     return jsonify({"message": "Order updated"})
 
+@app.route("/orders/by-timeslot")
+def get_orders_by_timeslot():
+    """Get orders filtered by timeslot parameter"""
+    timeslot = request.args.get('timeslot')
+
+    if not timeslot:
+        return jsonify({"error": "timeslot parameter is required"}), 400
+
+    try:
+        # Parse the datetime to extract date string
+        # Fix URL-decoded timeslot: replace ' 00:00' with '+00:00' and handle both 'T' and space separators
+        timeslot_clean = timeslot.replace(' 00:00', '+00:00')
+
+        if 'T' in timeslot_clean:
+            timeslot_clean = timeslot_clean.replace('Z', '+00:00')
+
+        timeslot_dt = datetime.fromisoformat(timeslot_clean)
+        date_str = timeslot_dt.strftime('%Y-%m-%d')
+
+        # Filter orders where item_description contains the date
+        orderlist = db.session.scalars(
+            db.select(Order).filter(Order.item_description.ilike(f'%{date_str}%'))
+        ).all()
+
+        # Return array directly to match book-drone expectations
+        return jsonify([order.json() for order in orderlist]), 200
+
+    except Exception as e:
+        # Log and return generic error for debugging
+        app.logger.error(f"Error filtering orders by timeslot: {str(e)}")
+        return jsonify({"error": f"Error processing request: {str(e)}"}), 400
+
 # --------------------------
 # Run App
 # --------------------------

@@ -213,6 +213,14 @@ services:
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
 
+# composite services
+  book-drone:
+    build: ./services/composite/book-drone
+    networks:
+      - kong-net
+    ports:
+      - "8101:8101"
+
 networks:
   kong-net:
     driver: bridge

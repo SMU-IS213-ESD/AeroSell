@@ -5,11 +5,54 @@ and format responses. No business logic lives here.
 
 from flask import abort, jsonify, request
 
+from app.models.pickup_point import PickupPoint
 from app.services.route_validation_service import (
     get_route_history,
     revalidate_route,
+    validate_route_by_ids,
     validate_route,
 )
+
+
+def list_pickup_points():
+    """GET /routes/pickup-points - Return all available pickup/dropoff locations."""
+    points = PickupPoint.query.all()
+    return jsonify([point.to_dict() for point in points]), 200
+
+
+def validate_route_by_ids_handler():
+    """POST /routes/validate-by-ids — validate using pickup point IDs instead of coordinates."""
+    body = request.get_json(silent=True)
+    if not body:
+        abort(400, description="Request body must be valid JSON.")
+
+    order_id = body.get("orderId")
+    pickup_point_id = body.get("pickupPointId")
+    dropoff_point_id = body.get("dropoffPointId")
+
+    if not order_id:
+        abort(400, description="'orderId' is required.")
+    if not pickup_point_id:
+        abort(400, description="'pickupPointId' is required.")
+    if not dropoff_point_id:
+        abort(400, description="'dropoffPointId' is required.")
+
+    try:
+        pickup_point_id_int = int(pickup_point_id)
+        dropoff_point_id_int = int(dropoff_point_id)
+    except (TypeError, ValueError):
+        abort(400, description="Pickup and dropoff point IDs must be integers.")
+
+    record = validate_route(
+        order_id=order_id,
+        pickup_lat=None,
+        pickup_lon=None,
+        dropoff_lat=None,
+        dropoff_lon=None,
+        pickup_point_id=pickup_point_id_int,
+        dropoff_point_id=dropoff_point_id_int
+    )
+    return jsonify(record.to_dict()), 201
 
 
 def _parse_coordinate(value, field_name: str) -> float:
