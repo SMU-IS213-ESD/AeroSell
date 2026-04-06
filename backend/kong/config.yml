@@ -24,7 +24,7 @@ services:
           - /error
 
   - name: flight-service
-    url: http://flight:8004
+    url: http://flight-planning:8004
     routes:
       - name: flight-route
         paths:
