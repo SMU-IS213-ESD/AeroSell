@@ -9,6 +9,7 @@ serialize or inspect results uniformly.
 from datetime import datetime, timezone
 
 from app import db
+from app.models.pickup_point import PickupPoint
 from app.models.route_validation import RouteValidation
 from app.services.distance_service import estimate_duration_min, haversine_distance_km
 from app.services.no_fly_zone_service import check_route_for_no_fly_zones
@@ -129,3 +130,43 @@ def get_route_history(order_id: str) -> list[RouteValidation]:
         .order_by(RouteValidation.checked_at.desc())
         .all()
     )
+
+
+def validate_route_by_ids(order_id: str, pickup_point_id: int, dropoff_point_id: int) -> RouteValidation:
+    """Validate a route using pickup point IDs instead of coordinates.
+
+    Looks up the coordinates for the given pickup point IDs and then
+    delegates to validate_route for the actual validation logic.
+
+    Args:
+        order_id: Caller-supplied order identifier.
+        pickup_point_id: The ID of the pickup point.
+        dropoff_point_id: The ID of the dropoff point.
+
+    Returns:
+        A committed RouteValidation record.
+    """
+    # Look up the pickup points
+    pickup_point = PickupPoint.query.get(pickup_point_id)
+    dropoff_point = PickupPoint.query.get(dropoff_point_id)
+
+    if not pickup_point:
+        raise ValueError(f"Pickup point with ID {pickup_point_id} not found.")
+    if not dropoff_point:
+        raise ValueError(f"Dropoff point with ID {dropoff_point_id} not found.")
+
+    # Validate using the coordinates
+    record = validate_route(
+        order_id=order_id,
+        pickup_lat=pickup_point.latitude,
+        pickup_lon=pickup_point.longitude,
+        dropoff_lat=dropoff_point.latitude,
+        dropoff_lon=dropoff_point.longitude,
+    )
+
+    # Update the record with point IDs
+    record.pickup_point_id = pickup_point_id
+    record.dropoff_point_id = dropoff_point_id
+    db.session.commit()
+
+    return record

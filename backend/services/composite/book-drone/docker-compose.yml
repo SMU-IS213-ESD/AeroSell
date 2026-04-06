@@ -1,0 +1,12 @@
+version: '1'
+
+services:
+  web:
+    build: .
+    volumes:
+      - ./app:/app
+    ports:
+      - "8101:8000"
+
+volumes:
+  postgres_data:
