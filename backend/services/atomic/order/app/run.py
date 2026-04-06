@@ -54,12 +54,12 @@ with app.app_context():
 # --------------------------
 # RabbitMQ Config
 # --------------------------
-RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST", "localhost")
+rabbitmq_url = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 EXCHANGE_NAME = "drone_events"
 
 def publish_status_event(order_id, status):
     """Publish order status updates to RabbitMQ"""
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+    connection = pika.BlockingConnection(pika.URLParameters(rabbitmq_url))
     channel = connection.channel()
     channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="fanout")
     message = {"order_id": order_id, "status": status}
@@ -87,7 +87,7 @@ def start_consumer():
                 db.session.commit()
                 print(f"[Order Updated via Event] {order_id} -> {new_status}")
 
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+    connection = pika.BlockingConnection(pika.URLParameters(rabbitmq_url))
     channel = connection.channel()
     channel.exchange_declare(exchange=EXCHANGE_NAME, exchange_type="fanout")
     result = channel.queue_declare(queue="", exclusive=True)
@@ -201,4 +201,4 @@ def update_status(order_id):
 if __name__ == "__main__":
     # Start RabbitMQ consumer in background thread
     threading.Thread(target=start_consumer, daemon=True).start()
-    app.run(host="0.0.0.0", port=8003, debug=True)
+    app.run(host="0.0.0.0", port=8006, debug=True)
