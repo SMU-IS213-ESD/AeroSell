@@ -64,17 +64,63 @@ def get_available_drones(timeslot):
         app.logger.error(f"Error getting available drones: {e}")
         return []
 
-def calculate_delivery_cost(distance_km):
-    """Calculate delivery cost based on distance in kilometers
+def calculate_delivery_cost(distance_km, weight_kg=1, size='medium', fragile=False, priority=False):
+    """Calculate delivery cost using same logic as BookingPage Live Price Estimate
 
-    Base rate: $5 for first 2km + $2 per additional km
-    Minimum cost: $5
+    Mimics the calculateQuote function from frontend:
+    - Base fare: $12
+    - Distance fee: $0.95 per km
+    - Weight fee: $2.10 per kg
+    - Size multiplier: small=1.0, medium=1.22, large=1.48
+    - Handling fee: $8 if fragile
+    - Priority fee: $15 if priority
+    - Platform fee: 6% of subtotal
+
+    Args:
+        distance_km: Delivery distance in kilometers
+        weight_kg: Package weight in kilograms
+        size: Package size - 'small', 'medium', or 'large'
+        fragile: Boolean for fragile handling
+        priority: Boolean for priority delivery
+
+    Returns:
+        Total delivery cost including all fees
     """
-    if distance_km <= 2:
-        return 5.0
-    return 5.0 + (distance_km - 2) * 2.0
+    # Base pricing from BookingPage
+    base_fare = 12.0
+    distance_fee = distance_km * 0.95
+    weight_fee = weight_kg * 2.1
 
-def validate_route_and_calculate_cost(pickup, dropoff, pickup_coords=None, dropoff_coords=None):
+    # Size multipliers (match BookingPage.vue sizeMultiplier)
+    size_multipliers = {'small': 1.0, 'medium': 1.22, 'large': 1.48}
+    package_factor = size_multipliers.get(size, 1.22)
+
+    # Additional fees
+    handling_fee = 8.0 if fragile else 0.0
+    priority_fee = 15.0 if priority else 0.0
+
+    # Calculate subtotal before platform fee
+    subtotal = (base_fare + distance_fee + weight_fee + handling_fee + priority_fee) * package_factor
+
+    # Platform fee (6%)
+    platform_fee = subtotal * 0.06
+
+    # Total delivery cost
+    total = subtotal + platform_fee
+
+    # Return full breakdown to match calculateQuote from appStore.js
+    return {
+        'baseFare': round(base_fare, 2),
+        'distanceFee': round(distance_fee, 2),
+        'weightFee': round(weight_fee, 2),
+        'packageFactor': round(package_factor, 2),
+        'handlingFee': round(handling_fee, 2),
+        'priorityFee': round(priority_fee, 2),
+        'platformFee': round(platform_fee, 2),
+        'total': round(total, 2)
+    }
+
+def validate_route_and_calculate_cost(pickup, dropoff, pickup_coords=None, dropoff_coords=None, package_weight_kg=1, package_size='medium', fragile=False, priority=False):
     """Validate route feasibility and calculate delivery cost"""
     try:
         # Build the payload based on available data
@@ -101,10 +147,10 @@ def validate_route_and_calculate_cost(pickup, dropoff, pickup_coords=None, dropo
 
         if response.status_code in [200, 201]:
             route_validation = response.json()
-            # Calculate cost based on estimated distance
+            # Calculate cost based on estimated distance with package details
             distance_km = route_validation.get('estimatedDistanceKm', 0.0)
-            delivery_cost = calculate_delivery_cost(distance_km)
-            route_validation['cost'] = delivery_cost
+            delivery_cost = calculate_delivery_cost(distance_km, package_weight_kg, package_size, fragile, priority)
+            route_validation.update(delivery_cost)
             return route_validation
         return None
     except Exception as e:
@@ -243,11 +289,11 @@ def book_drone():
         app.logger.info(f"Selected drone {drone_id} for booking")
 
         # Step 3: Validate route and calculate cost
-        route_validation = validate_route_and_calculate_cost(pickup_location, dropoff_location, data.get('pickup_coordinates'), data.get('dropoff_coordinates'))
+        route_validation = validate_route_and_calculate_cost(pickup_location, dropoff_location, data.get('pickup_coordinates'), data.get('dropoff_coordinates'), data.get('package_weight_kg', 1), data.get('package_size', 'medium'), data.get('fragile', False), data.get('priority', False))
         if not route_validation:
             return jsonify({'error': 'Route validation failed'}), 400
 
-        delivery_cost = route_validation.get('cost', 0.0)
+        delivery_cost = route_validation.get('total', 0.0)
         insurance_id = route_validation.get('insurance_id', '')
 
         app.logger.info(f"Route validated. Cost: ${delivery_cost}")
@@ -373,12 +419,14 @@ def validate_booking():
         # Step 3: Validate route and calculate cost
         route_validation = validate_route_and_calculate_cost(
             pickup_location, dropoff_location,
-            data.get('pickup_coordinates'), data.get('dropoff_coordinates')
+            data.get('pickup_coordinates'), data.get('dropoff_coordinates'),
+        data.get('package_weight_kg', 1), data.get('package_size', 'medium'),
+        data.get('fragile', False), data.get('priority', False)
         )
         if not route_validation:
             return jsonify({'error': 'Route validation failed'}), 400
 
-        delivery_cost = route_validation.get('cost', 0.0)
+        delivery_cost = route_validation.get('total', 0.0)
 
         app.logger.info(f"Route validated. Cost: ${delivery_cost}")
 
@@ -399,6 +447,57 @@ def validate_booking():
     except Exception as e:
         app.logger.error(f"Validation error: {str(e)}")
         return jsonify({'error': f'Validation failed: {str(e)}'}), 500
+
+@app.route("/status", methods=["POST"])
+def get_user_status():
+    """Fetch delivery status from backend Order Service"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({'error': 'user_id required'}), 400
+
+        # Call Order Service to get user's orders
+        response = requests.get(
+            f"{ORDER_SERVICE_URL}/orders",
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            return jsonify({'error': 'Failed to fetch orders'}), 502
+
+        all_orders = response.json().get('data', {}).get('orders', [])
+
+        # Filter orders for this user
+        user_orders = [order for order in all_orders if order.get('user_id') == str(user_id)]
+
+        # Transform to match StatusPage.vue format
+        status_orders = []
+        for order in user_orders:
+            status_order = {
+                'trackingCode': f"AS-{order.get('order_id', '000000')}",
+                'ownerEmail': '',  # Would need to fetch from user service
+                'fromLocation': order.get('pickup_location'),
+                'toLocation': order.get('dropoff_location'),
+                'status': order.get('status', 'unknown').lower(),
+                'milestones': [
+                    {'key': 'scheduled', 'label': 'Scheduled', 'details': 'Delivery slot reserved', 'complete': True, 'reachedAt': order.get('created', '')},
+                    {'key': 'picked_up', 'label': 'Picked Up', 'details': 'Package collected', 'complete': False, 'reachedAt': ''},
+                    {'key': 'in_flight', 'label': 'In Flight', 'details': 'Drone en route', 'complete': False, 'reachedAt': ''},
+                    {'key': 'delivered', 'label': 'Delivered', 'details': 'Package delivered', 'complete': False, 'reachedAt': ''}
+                ]
+            }
+            status_orders.append(status_order)
+
+        return jsonify({
+            'success': True,
+            'orders': status_orders
+        }), 200
+
+    except Exception as e:
+        app.logger.error(f"Status fetch error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route("/confirm", methods=["POST"])
 def confirm_booking():
