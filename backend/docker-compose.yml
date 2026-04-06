@@ -111,6 +111,8 @@ services:
       - "8003:8003"
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/error_db
+      - rabbit_host=${rabbit_host}
+      - rabbit_port=${rabbit_port}
     depends_on:
       db:
         condition: service_healthy
