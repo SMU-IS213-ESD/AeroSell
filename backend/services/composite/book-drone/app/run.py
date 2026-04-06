@@ -53,9 +53,10 @@ def get_available_drones(timeslot):
         # Filter available drones
         available_drones = []
         for drone in all_drones:
+            drone_status = drone.get('status', '').lower()
             if (drone['id'] not in booked_drone_ids and
-                drone.get('status') != 'BROKEN' and
-                drone.get('status') != 'MAINTENANCE'):
+                drone_status != 'broken' and
+                drone_status != 'maintenance'):
                 available_drones.append(drone)
 
         return available_drones
