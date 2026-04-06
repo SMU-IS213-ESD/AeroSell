@@ -216,6 +216,8 @@ services:
 # composite services
   book-drone:
     build: ./services/composite/book-drone
+    volumes:
+      - ./services/composite/book-drone/app:/app
     networks:
       - kong-net
     ports:
