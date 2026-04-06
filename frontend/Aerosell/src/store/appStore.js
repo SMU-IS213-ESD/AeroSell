@@ -38,6 +38,7 @@ const makeDefaultState = () => ({
     status: 'not_started',
     milestones: [],
   },
+  validationData: null,  // Temporary data for validation between booking and payment
 })
 
 const cloneState = (value) => JSON.parse(JSON.stringify(value))
@@ -66,6 +67,7 @@ const loadState = () => {
         ...makeDefaultState().delivery,
         ...(parsed.delivery || {}),
       },
+      validationData: parsed.validationData || null,  // Persist and restore validationData
     }
   } catch {
     return makeDefaultState()

@@ -20,7 +20,25 @@ export const authFetch = async (path, opts = {}) => {
 
 // Book-Drone Composite Service API
 export const bookDroneAPI = {
-  // Create a new booking
+  // Validate booking data (Phase 1)
+  validateBooking: async (bookingData) => {
+    const response = await authFetch('/book-drone/validate', {
+      method: 'POST',
+      body: JSON.stringify(bookingData)
+    })
+    return response
+  },
+
+  // Confirm booking and process payment (Phase 2)
+  confirmBooking: async (confirmationData) => {
+    const response = await authFetch('/book-drone/confirm', {
+      method: 'POST',
+      body: JSON.stringify(confirmationData)
+    })
+    return response
+  },
+
+  // Legacy: Create a new booking (all-in-one, deprecated)
   createBooking: async (bookingData) => {
     const response = await authFetch('/book-drone/book', {
       method: 'POST',

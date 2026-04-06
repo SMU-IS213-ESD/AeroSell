@@ -103,7 +103,7 @@ const submit = async () => {
     const pickupDateTime = new Date(`${booking.pickupDate}T${booking.pickupTime}`)
     const timeslot = pickupDateTime.toISOString()
 
-    // Prepare booking data for book-drone composite service
+    // Prepare validation data for book-drone composite service (Phase 1)
     const bookingData = {
       user_id: state.user?.id || 1, // Use logged-in user ID or default
       pickup_location: booking.fromLocation,
@@ -119,47 +119,65 @@ const submit = async () => {
       pickup_point_id: selectedPoints.fromPoint.id,
       dropoff_point_id: selectedPoints.toPoint.id,
       timeslot: timeslot,
-      payment_method: 'stripe',
-      package_details: {
-        weight_kg: booking.packageWeightKg,
-        size: booking.packageSize,
-        fragile: booking.fragile,
-        priority: booking.priority
-      }
+      payment_method: 'stripe' // We'll use this later
     }
 
-    console.log('Submitting booking to book-drone service:', bookingData)
+    console.log('Validating booking with book-drone service:', bookingData)
 
-    // Call book-drone composite service
-    const response = await bookDroneAPI.createBooking(bookingData)
+    // Phase 1: Call validate endpoint to check user, drones, and route
+    const response = await bookDroneAPI.validateBooking(bookingData)
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.error || `Booking failed: ${response.statusText}`)
+      throw new Error(errorData.error || `Validation failed: ${response.statusText}`)
     }
 
     const result = await response.json()
-    console.log('Booking successful:', result)
+    console.log('Validation successful:', result)
 
-    // Save booking and payment details to state
+    // Save validation and booking details to state for payment page
     if (result.success) {
-      state.payment = {
-        complete: false, // Will be completed on payment page
-        provider: 'stripe',
-        orderId: result.order_id || '',
-        reference: result.payment_id || '',
-        paidAt: '',
-        bookingId: result.booking_id
+      // Store all validation data that will be needed by payment page
+      state.validationData = {
+        user_id: bookingData.user_id,
+        drone_id: result.selected_drone.id,  // Add drone_id for confirm endpoint
+        user: result.user,
+        selectedDrone: result.selected_drone,
+        availableDrones: result.available_drones,
+        routeValidation: result.route_validation,
+        pickup_location: bookingData.pickup_location,  // For backend /confirm endpoint
+        dropoff_location: bookingData.dropoff_location,
+        pickupLocation: bookingData.pickup_location,  // Keep camelCase for frontend
+        dropoffLocation: bookingData.dropoff_location,
+        timeslot: bookingData.timeslot,
+        delivery_cost: result.delivery_cost,  // For backend /confirm endpoint
+        pickupCoordinates: bookingData.pickup_coordinates,
+        dropoffCoordinates: bookingData.dropoff_coordinates,
+        pickupPointId: bookingData.pickup_point_id,
+        dropoffPointId: bookingData.dropoff_point_id,
+        deliveryCost: result.delivery_cost,
+        paymentMethod: 'stripe'
       }
 
-      // Navigate to payment page
+      // Save booking details
+      state.payment = {
+        complete: false, // To be completed on payment page
+        provider: 'stripe',
+        orderId: null, // Will be set after order creation
+        reference: null, // Will be set after payment
+        paidAt: '',
+        bookingId: null, // Will be set after confirmation
+        estimatedCost: result.delivery_cost
+      }
+
+      // Navigate to payment page with validation data
       router.push('/payment')
     } else {
-      throw new Error(result.error || 'Booking failed')
+      throw new Error(result.error || 'Validation failed')
     }
   } catch (error) {
-    console.error('Booking error:', error)
-    errorMessage.value = error.message || 'Failed to create booking. Please try again.'
+    console.error('Validation error:', error)
+    errorMessage.value = error.message || 'Failed to validate booking. Please try again.'
   } finally {
     isSubmitting.value = false
   }
