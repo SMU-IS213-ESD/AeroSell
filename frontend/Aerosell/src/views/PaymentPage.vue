@@ -1,36 +1,41 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { loadStripe } from '@stripe/stripe-js'
-import { useAppStore } from '../store/appStore'
-import { bookDroneAPI } from '../services/api'
+import { computed, ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { loadStripe } from "@stripe/stripe-js";
+import { useAppStore } from "../store/appStore";
+import { bookDroneAPI } from "../services/api";
 
-const router = useRouter()
-const { state, completeStripePayment } = useAppStore()
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '')
+const router = useRouter();
+const { state, completeStripePayment } = useAppStore();
+const stripePromise = loadStripe(
+  import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "",
+);
 
-const processing = ref(false)
-const paymentMessage = ref('')
-const stripe = ref(null)
-const elements = ref(null)
+const processing = ref(false);
+const paymentMessage = ref("");
+const stripe = ref(null);
+const elements = ref(null);
 
 // Get validation data from state
-const validationData = computed(() => state.validationData || {})
-const deliveryCost = computed(() => validationData.value.delivery_cost || 0)
-const selectedDrone = computed(() => validationData.value.selected_drone || {})
-const canPay = computed(() => Boolean(validationData.value.user_id && validationData.value.delivery_cost))
+const validationData = computed(() => state.validationData || {});
+const deliveryCost = computed(() => validationData.value.delivery_cost || 0);
+const selectedDrone = computed(() => validationData.value.selected_drone || {});
+const canPay = computed(() =>
+  Boolean(validationData.value.user_id && validationData.value.delivery_cost),
+);
 
 const pay = async () => {
   if (!canPay.value) {
-    paymentMessage.value = 'Validation data is required. Please complete the booking form first.'
-    return
+    paymentMessage.value =
+      "Validation data is required. Please complete the booking form first.";
+    return;
   }
 
-  processing.value = true
-  paymentMessage.value = ''
+  processing.value = true;
+  paymentMessage.value = "";
 
   try {
-    console.log('Processing payment and confirmation for booking validation')
+    console.log("Processing payment and confirmation for booking validation");
 
     // Phase 2: Call confirm endpoint to process payment and create order
     const confirmationData = {
@@ -40,66 +45,72 @@ const pay = async () => {
       dropoff_location: validationData.value.dropoff_location,
       timeslot: validationData.value.timeslot,
       delivery_cost: validationData.value.delivery_cost,
-      payment_method: 'stripe',
+      payment_method: "stripe",
       payment_details: {
         card_holder: cardHolderName.value,
         card_number: cardNumber.value,
         expiry: expiryDate.value,
-        cvc: cvc.value
+        cvc: cvc.value,
       },
-      route_validation: validationData.value.route_validation
-    }
+      route_validation: validationData.value.route_validation,
+    };
 
-    const response = await bookDroneAPI.confirmBooking(confirmationData)
+    const response = await bookDroneAPI.confirmBooking(confirmationData);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.error || `Payment failed: ${response.statusText}`)
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.error || `Payment failed: ${response.statusText}`,
+      );
     }
 
-    const result = await response.json()
-    console.log('Payment and booking confirmation successful:', result)
+    const result = await response.json();
+    console.log("Payment and booking confirmation successful:", result);
 
     if (result.success) {
       // Save confirmation details
       state.payment = {
         complete: true,
-        provider: 'stripe',
-        orderId: result.order_id || '',
-        reference: result.payment_id || '',
+        provider: "stripe",
+        orderId: result.order_id || "",
+        reference: result.payment_id || "",
         paidAt: new Date().toISOString(),
         bookingId: result.booking_id,
-        confirmationData: result
-      }
+        confirmationData: result,
+      };
 
       // Update payment in store
-      completeStripePayment(result.payment_id)
+      completeStripePayment(result.payment_id);
 
       // Navigate to confirmation page
-      router.push('/confirmation')
+      router.push("/confirmation");
     } else {
-      throw new Error(result.error || 'Payment failed')
+      throw new Error(result.error || "Payment failed");
     }
   } catch (error) {
-    console.error('Payment error:', error)
-    paymentMessage.value = error instanceof Error ? error.message : 'Payment failed. Please try again.'
+    console.error("Payment error:", error);
+    paymentMessage.value =
+      error instanceof Error
+        ? error.message
+        : "Payment failed. Please try again.";
   } finally {
-    processing.value = false
+    processing.value = false;
   }
-}
+};
 
 // Payment form fields
-const cardHolderName = ref('')
-const cardNumber = ref('')
-const expiryDate = ref('')
-const cvc = ref('')
+const cardHolderName = ref("");
+const cardNumber = ref("");
+const expiryDate = ref("");
+const cvc = ref("");
 
 // Initialize page - verify validation exists
 onMounted(() => {
   if (!validationData.value.user_id) {
-    paymentMessage.value = 'No booking validation found. Please complete your booking first.'
+    paymentMessage.value =
+      "No booking validation found. Please complete your booking first.";
   }
-})
+});
 </script>
 
 <template>
@@ -109,16 +120,31 @@ onMounted(() => {
       <div class="payment-form">
         <label>
           Cardholder Name
-          <input v-model="cardHolderName" type="text" placeholder="John Doe" required />
+          <input
+            v-model="cardHolderName"
+            type="text"
+            placeholder="John Doe"
+            required
+          />
         </label>
         <label>
           Card Number
-          <input v-model="cardNumber" type="text" placeholder="4242 4242 4242 4242" required />
+          <input
+            v-model="cardNumber"
+            type="text"
+            placeholder="4242 4242 4242 4242"
+            required
+          />
         </label>
         <div class="inline-fields">
           <label>
             Expiration (MM/YY)
-            <input v-model="expiryDate" type="text" placeholder="12/25" required />
+            <input
+              v-model="expiryDate"
+              type="text"
+              placeholder="12/25"
+              required
+            />
           </label>
           <label>
             CVC
@@ -126,8 +152,12 @@ onMounted(() => {
           </label>
         </div>
       </div>
-      <button class="btn btn-primary wide" :disabled="processing || !canPay" @click="pay">
-        {{ processing ? 'Processing...' : `Pay $${deliveryCost.toFixed(2)}` }}
+      <button
+        class="btn btn-primary wide"
+        :disabled="processing || !canPay"
+        @click="pay"
+      >
+        {{ processing ? "Processing..." : `Pay $${deliveryCost.toFixed(2)}` }}
       </button>
       <p v-if="paymentMessage" class="warn">{{ paymentMessage }}</p>
     </div>
@@ -136,11 +166,11 @@ onMounted(() => {
       <h3>Booking Summary</h3>
       <div class="detail-row">
         <p><strong>From:</strong></p>
-        <p>{{ state.booking.fromLocation || 'N/A' }}</p>
+        <p>{{ state.booking.fromLocation || "N/A" }}</p>
       </div>
       <div class="detail-row">
         <p><strong>To:</strong></p>
-        <p>{{ state.booking.toLocation || 'N/A' }}</p>
+        <p>{{ state.booking.toLocation || "N/A" }}</p>
       </div>
       <div class="detail-row">
         <p><strong>Date:</strong></p>
@@ -148,7 +178,7 @@ onMounted(() => {
       </div>
       <div class="detail-row">
         <p><strong>Drone:</strong></p>
-        <p>Drone {{ selectedDrone.id || 'N/A' }}</p>
+        <p>Drone {{ selectedDrone.id || "N/A" }}</p>
       </div>
       <div class="detail-row">
         <p><strong>Weight:</strong></p>
