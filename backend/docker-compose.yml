@@ -42,6 +42,7 @@ services:
   #   networks:
   #     - kong-net
 
+  # Database service
   db:
     image: postgres:18
     restart: always
@@ -71,6 +72,7 @@ services:
       timeout: 3s
       retries: 5
   
+  #atomic services
   document:
     build: ./services/atomic/document
     volumes:
@@ -159,13 +161,14 @@ services:
     build: ./services/atomic/payment
     volumes:
       - ./services/atomic/payment/app:/app
-    env_file: ./services/atomic/payment/app/.env
     networks:
       - kong-net
     ports:
       - "8007:8007"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/payment_db
+      DATABASE_URL: postgresql://user:password@db:5432/payment_db
+      STRIPE_API_KEY: ${STRIPE_API_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
     depends_on:
       db:
         condition: service_healthy
@@ -190,11 +193,10 @@ services:
       - kong-net
     ports:
       - "8009:8009"
-    env_file:
-      - ./services/atomic/weather/.env
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY}
     depends_on:
       redis:
         condition: service_healthy
