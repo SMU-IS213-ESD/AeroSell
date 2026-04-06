@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { loadStripe } from '@stripe/stripe-js'
 import { useAppStore } from '../store/appStore'
 import { createStripePaymentIntent } from '../services/stripeApi'
+import { bookDroneAPI } from '../services/api'
 
 const router = useRouter()
 const { state, completeStripePayment } = useAppStore()
@@ -12,17 +13,12 @@ const processing = ref(false)
 const paymentMessage = ref('')
 
 const total = computed(() => state.quote?.total ?? 0)
-const canPay = computed(() => Boolean(state.quote && state.booking.fromLocation && state.booking.toLocation))
-const orderId = computed(() => state.payment?.orderId || '')
+const canPay = computed(() => Boolean(state.quote && state.payment?.orderId && state.payment?.bookingId))
+const bookingId = computed(() => state.payment?.bookingId || '')
 
 const pay = async () => {
   if (!canPay.value) {
-    paymentMessage.value = 'Please complete booking details first.'
-    return
-  }
-
-  if (!orderId.value) {
-    paymentMessage.value = 'Order ID is required. Please book a delivery again to create an order first.'
+    paymentMessage.value = 'Booking information is required. Please complete the booking form first.'
     return
   }
 
@@ -30,38 +26,41 @@ const pay = async () => {
   paymentMessage.value = ''
 
   try {
+    // For demonstration with book-drone composite service, we'll simulate the payment
+    // In a real implementation, you'd integrate Stripe payment element here
     const key = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || ''
     if (!key) {
-      throw new Error('Missing VITE_STRIPE_PUBLISHABLE_KEY in your environment settings.')
+      throw new Error('Missing VITE_STRIPE_PUBLISHABLE_KEY in environment settings.')
     }
 
+    console.log('Processing payment for booking:', bookingId.value)
+
+    // The book-drone composite service has already handled payment processing
+    // This step would integrate with Stripe Elements in a real implementation
     const stripe = await loadStripe(key)
     if (!stripe) {
       throw new Error('Stripe failed to initialize.')
     }
 
-    const amountCents = Math.round(total.value * 100)
-    const customer = {
-      email: state.user?.email || state.booking.recipientEmail,
-      name: state.user?.name || state.booking.recipientName,
-    }
-    const { paymentIntentId } = await createStripePaymentIntent({
-      order_id: orderId.value,
-      amount: amountCents,
-      booking: state.booking,
-      customer,
-    })
+    // Simulate payment completion (in real app, use Stripe Elements)
+    await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Stripe Elements/Payment Element is the recommended next step for collecting card details.
-    // This demo keeps the custom form and records a successful intent creation as payment completion.
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    completeStripePayment(paymentIntentId)
+    // Update payment status as complete
+    completeStripePayment(state.payment.reference)
+
+    // Navigate to confirmation page
     router.push('/confirmation')
   } catch (error) {
-    paymentMessage.value = error instanceof Error ? error.message : 'Stripe payment failed. Please try again.'
+    console.error('Payment error:', error)
+    paymentMessage.value = error instanceof Error ? error.message : 'Payment failed. Please try again.'
   } finally {
     processing.value = false
   }
+}
+
+// Initialize page - verify booking exists
+if (!state.payment?.bookingId) {
+  paymentMessage.value = 'No booking found. Please complete your booking first.'
 }
 </script>
 
