@@ -17,6 +17,7 @@ db = SQLAlchemy(app)
 class SupportStaffOut(Schema):
 	id = Integer()
 	name = String()
+	email = String()
 	is_available = Boolean()
 
 class AssignmentOut(Schema):
@@ -35,6 +36,7 @@ class SupportStaff(db.Model):
 	__tablename__ = 'support_staff'
 	id = db.Column(db.Integer, primary_key=True)
 	name = db.Column(db.String(100), nullable=False)
+	email = db.Column(db.String(100), nullable=False, unique=True)
 	is_available = db.Column(db.Boolean, default=True, nullable=False)
 
 
@@ -42,6 +44,7 @@ class SupportStaff(db.Model):
 		return {
 			'id': self.id,
 			'name': self.name,
+			'email': self.email,
 			'is_available': self.is_available
 		}
 
@@ -204,9 +207,9 @@ def delete_assignment(assignment_id):
 @app.doc(tags=["SupportStaff"])
 def create_staff():
 	data = request.get_json(silent=True)
-	if not data or "name" not in data:
-		abort(400, "Missing required field: name")
-	staff = SupportStaff(name=data["name"], is_available=data.get("is_available", True))
+	if not data or "name" not in data or "email" not in data:
+		abort(400, "Missing required fields: name, email")
+	staff = SupportStaff(name=data["name"], email=data["email"], is_available=data.get("is_available", True))
 	db.session.add(staff)
 	db.session.commit()
 	return staff
@@ -239,7 +242,7 @@ def update_staff(staff_id):
 	if not staff:
 		return jsonify({"error": "Staff not found"}), 404
 	data = request.get_json(silent=True)
-	for field in ["name", "is_available"]:
+	for field in ["name", "email", "is_available"]:
 		if field in data:
 			setattr(staff, field, data[field])
 	db.session.commit()
@@ -286,9 +289,9 @@ if __name__ == "__main__":
 		# Insert initial support staff if table is empty
 		if SupportStaff.query.count() == 0:
 			staff_list = [
-				SupportStaff(name="Alice"),
-				SupportStaff(name="Bob"),
-				SupportStaff(name="Charlie"),
+				SupportStaff(name="Alice", email="alice@operations-support.com"),
+				SupportStaff(name="Bob", email="bob@operations-support.com"),
+				SupportStaff(name="Charlie", email="charlie@operations-support.com"),
 			]
 			db.session.add_all(staff_list)
 			db.session.commit()
