@@ -104,6 +104,32 @@ const cardNumber = ref("");
 const expiryDate = ref("");
 const cvc = ref("");
 
+// Format card number as 4242 4242 4242 4242
+const formatCardNumber = (event) => {
+  const digitsOnly = event.target.value.replace(/\D/g, "").slice(0, 16);
+  const formatted = digitsOnly.replace(/(\d{4})(?!$)/g, "$1 ");
+  event.target.value = formatted;
+  cardNumber.value = formatted;
+};
+
+// Format expiry as MM/YY
+const formatExpiry = (event) => {
+  const digitsOnly = event.target.value.replace(/\D/g, "").slice(0, 4);
+  let formatted = digitsOnly;
+  if (digitsOnly.length >= 3) {
+    formatted = digitsOnly.slice(0, 2) + "/" + digitsOnly.slice(2);
+  }
+  event.target.value = formatted;
+  expiryDate.value = formatted;
+};
+
+// Format CVC as 123 or 1234
+const formatCvc = (event) => {
+  const digitsOnly = event.target.value.replace(/\D/g, "").slice(0, 4);
+  event.target.value = digitsOnly;
+  cvc.value = digitsOnly;
+};
+
 // Initialize page - verify validation exists
 onMounted(() => {
   if (!validationData.value.user_id) {
@@ -133,6 +159,9 @@ onMounted(() => {
             v-model="cardNumber"
             type="text"
             placeholder="4242 4242 4242 4242"
+            maxlength="19"
+            pattern="[0-9\s]{13,19}" 
+            @input="formatCardNumber"
             required
           />
         </label>
@@ -142,13 +171,16 @@ onMounted(() => {
             <input
               v-model="expiryDate"
               type="text"
-              placeholder="12/25"
+              placeholder="MM/YY"
+              maxlength="5"
+              pattern="(0[1-9]|1[0-2])\/?([0-9]{2})"
+              @input="formatExpiry"
               required
             />
           </label>
           <label>
             CVC
-            <input v-model="cvc" type="text" placeholder="123" required />
+            <input v-model="cvc" type="text" placeholder="123" maxlength="4" pattern="[0-9]{3,4}" @input="formatCvc" required />
           </label>
         </div>
       </div>
