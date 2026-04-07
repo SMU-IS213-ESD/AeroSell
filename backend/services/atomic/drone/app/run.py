@@ -116,14 +116,19 @@ class Telemetry(db.Model):
 	id = db.Column(db.Integer, primary_key=True)
 	drone_id = db.Column(db.Integer, db.ForeignKey('drones.id', ondelete="CASCADE"), nullable=False)
 	timestamp = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
-	progress = db.Column(db.Integer, nullable=False) 
+	error = db.Column(db.Boolean, nullable=True)
+	current_longitude = db.Column(db.Float, nullable=True)
+	current_latitude = db.Column(db.Float, nullable=True)
 
 	def json(self):
 		return {
 			'id': self.id,
 			'drone_id': self.drone_id,
 			'timestamp': self.timestamp.isoformat() if self.timestamp else None,
-			'progress': self.progress,
+			'error': self.error,
+			'current_longitude': self.current_longitude,
+			'current_latitude': self.current_latitude
+
 		}
 
 # --- APIFlask Schema for Drone ---
@@ -141,21 +146,20 @@ def telemetry_callback(ch, method, properties, body):
 		data = json.loads(body)
 		print("[Telemetry] Received:", data, flush=True)
 		drone_id = data.get("drone_id")
-		progress = data.get("progress")
+		
 		# Update telemetry table
 		with app.app_context():
 			drone = Drone.query.get(drone_id)
-			if drone:
-				# Optionally update drone status based on progress
-				if progress == 100:
-					drone.status = "landed"
-				db.session.commit()
+			
 			# Insert telemetry record
-			telemetry = Telemetry(drone_id=drone_id, progress=progress)
+			telemetry = Telemetry(drone_id=drone_id)
 			db.session.add(telemetry)
 			db.session.commit()
 	except Exception as e:
 		app.logger.exception("Failed to process telemetry message")
+
+#TODO: this is a function meant for telemetry_callback to call, when it receives telemetry that has error = True, it will publish a message to
+
 
 def flight_update_callback(ch, method, properties, body):
 	try:
