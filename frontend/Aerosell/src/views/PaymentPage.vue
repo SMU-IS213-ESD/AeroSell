@@ -66,29 +66,21 @@ const pay = async () => {
 
     const result = await response.json();
     console.log("Payment and booking confirmation successful:", result);
-    console.log("Pick up PIN from backend:", result.pickup_pin);
 
     if (result.success) {
-      // Extract order_id - it might be nested in an object or a direct value
-      const orderId = result.order_id?.order_id || result.order_id || "";
-      const paymentId = result.payment_id || "";
-      const pickupPin = result.pickup_pin ?? null;
-
-      console.log("Extracted values:", { orderId, paymentId, pickupPin });
-
       // Save confirmation details
       state.payment = {
         complete: true,
         provider: "stripe",
-        orderId: orderId,
-        reference: paymentId,
+        orderId: result.order_id || "",
+        reference: result.payment_id || "",
         paidAt: new Date().toISOString(),
         bookingId: result.booking_id,
         confirmationData: result,
       };
 
-      // Update payment in store with pickup pin and order_id from API
-      completeStripePayment(paymentId, pickupPin, orderId);
+      // Update payment in store
+      completeStripePayment(result.payment_id);
 
       // Navigate to confirmation page
       router.push("/confirmation");
