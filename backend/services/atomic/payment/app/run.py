@@ -152,7 +152,7 @@ def get_payment(payment_id: int):
 
 @app.route("/", methods=["GET"])
 def list_payments():
-	# optional filter by order_id
+	# optional filter by order_id or transaction_id
 	try:
 		page = int(request.args.get("page", 1))
 	except Exception:
@@ -162,12 +162,17 @@ def list_payments():
 	except Exception:
 		per_page = 50
 	order_id = request.args.get("order_id")
+	transaction_id = request.args.get("transaction_id")
 	query = Payment.query
 	if order_id:
 		try:
 			query = query.filter_by(order_id=int(order_id))
 		except Exception:
 			return jsonify({"error": "invalid order_id"}), 400
+	if transaction_id:
+		# Filter by transaction_id (Stripe payment intent ID)
+		query = query.filter_by(transaction_id=transaction_id)
+
 
 	pagination = query.order_by(Payment.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
 	items = [p.to_dict() for p in pagination.items]

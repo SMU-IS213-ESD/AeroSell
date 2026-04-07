@@ -184,6 +184,52 @@ def process_payment(user_id, amount, payment_method):
         app.logger.error(f"Error processing payment: {e}")
         return None
 
+def verify_payment_intent(payment_intent_id):
+    """Verify payment status via Payment Service using payment_intent_id from Stripe Elements"""
+    try:
+        # Call payment service to verify PaymentIntent status
+        response = requests.get(
+            f"{PAYMENT_SERVICE_URL}/",
+            params={"transaction_id": payment_intent_id},
+            timeout=10
+        )
+
+        if response.status_code not in (200, 201):
+            app.logger.error(f"Payment service returned status {response.status_code} while verifying {payment_intent_id}")
+            return None
+
+        response_data = response.json()
+        payments = response_data.get("payments") or []
+        if not payments:
+            app.logger.info(f"No payments found for transaction_id={payment_intent_id}")
+            return None
+
+        payment_details = payments[0]
+
+        status = payment_details.get('status')
+        # Map returned payment dict fields to expected keys
+        payment_id = payment_details.get('id') or payment_details.get('payment_id')
+
+        if status == 'succeeded':
+            return {
+                'status': 'succeeded',
+                'payment_id': payment_id,
+                'amount': payment_details.get('amount'),
+                'currency': payment_details.get('currency'),
+                'transaction_id': payment_details.get('transaction_id')
+            }
+        else:
+            return {
+                'status': status,
+                'error': payment_details.get('error', 'Payment verification failed')
+            }
+    except Exception as e:
+        app.logger.error(f"Error verifying payment intent: {e}")
+        return None
+    except Exception as e:
+        app.logger.error(f"Error verifying payment intent: {e}")
+        return None
+
 def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, payment_details):
     """Create order record with payment details"""
     try:
@@ -312,8 +358,11 @@ def book_drone():
         if not payment_response:
             return jsonify({'error': 'Payment failed'}), 400
 
-        payment_id = payment_response.get('payment_id')
+        # Verify payment was successful before creating order
+        if payment_response.get("status") != "succeeded":
+            return jsonify({"error": "Payment must be successful to create order", "payment_status": payment_response.get("status")}), 400
 
+        payment_id = payment_response.get("payment_id")
         app.logger.info(f"Payment processed successfully. Payment ID: {payment_id}")
 
         # Step 5: Create order with booking and payment details
@@ -510,9 +559,9 @@ def get_user_status():
 
 @app.route("/confirm", methods=["POST"])
 def confirm_booking():
-    """Phase 2: Process payment and create order after validation
+    """Phase 2: Verify payment and create order after Stripe Elements confirmation
 
-    Expects the validated data from /validate endpoint
+    Expects the validated data from /validate endpoint plus payment_intent_id
     """
     try:
         data = request.get_json()
@@ -531,22 +580,33 @@ def confirm_booking():
         timeslot = datetime.fromisoformat(data['timeslot'].replace('Z', '+00:00'))
         delivery_cost = data['delivery_cost']
         payment_method = data.get('payment_method', 'stripe')
+        payment_details = data.get('payment_details', {})
+        payment_intent_id = payment_details.get('payment_intent_id')
 
         app.logger.info(f"Processing booking confirmation for user {user_id}")
 
-        # Step 4: Process payment
-        payment_response = process_payment(user_id, delivery_cost, payment_method)
-        if not payment_response:
-            return jsonify({'error': 'Payment failed'}), 400
+        # Verify payment using payment_intent_id from Stripe Elements
+        if not payment_intent_id:
+            return jsonify({'error': 'payment_intent_id is required after Stripe Elements confirmation'}), 400
 
-        payment_id = payment_response.get('payment_id')
+        verification_result = verify_payment_intent(payment_intent_id)
+        if not verification_result:
+            return jsonify({'error': 'Payment verification failed'}), 400
+
+        if verification_result.get('status') != 'succeeded':
+            return jsonify({
+                'error': 'Payment must be successful to create order',
+                'payment_status': verification_result.get('status')
+            }), 400
+
+        payment_id = verification_result.get('payment_id')
 
         app.logger.info(f"Payment processed successfully. Payment ID: {payment_id}")
 
         # Step 5: Create order with booking and payment details
         order_data = create_order_with_payment(
             user_id, drone_id, pickup_location, dropoff_location,
-            timeslot, payment_response
+            timeslot, verification_result
         )
         if not order_data:
             return jsonify({'error': 'Order creation failed'}), 500
@@ -615,5 +675,64 @@ def validate_route():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route("/create-payment-intent", methods=["POST"])
+def create_payment_intent():
+    """Create a PaymentIntent and return client_secret for Stripe Elements"""
+    try:
+        data = request.get_json()
+
+        if not data or "amount" not in data:
+            return jsonify({"error": "amount is required"}), 400
+
+        amount = data.get("amount")
+        currency = data.get("currency", "SGD")
+
+        # Generate temporary order_id
+        import random
+        temp_order_id = random.randint(1, 1000000000)
+
+        payload = {
+            "order_id": temp_order_id,
+            "amount": amount,
+            "method": "stripe",
+            "currency": currency
+        }
+
+        response = requests.post(
+            f"{PAYMENT_SERVICE_URL}/",
+            json=payload,
+            timeout=10
+        )
+
+        if response.status_code in [200, 201]:
+            result = response.json()
+            payment_id = result.get("payment_id")
+
+            # Get payment details to get client_secret and status
+            payment_detail_response = requests.get(
+                f"{PAYMENT_SERVICE_URL}/{payment_id}",
+                timeout=5
+            )
+
+            if payment_detail_response.status_code in [200, 201]:
+                payment_details = payment_detail_response.json()
+                client_secret = payment_details.get("client_secret")
+                transaction_id = payment_details.get("transaction_id")
+
+                if not client_secret:
+                    # Fallback for create response
+                    client_secret = result.get("client_secret")
+
+                return jsonify({
+                    "success": True,
+                    "client_secret": client_secret,
+                    "payment_id": payment_id,
+                    "transaction_id": transaction_id
+                }), 200
+
+        return jsonify({"error": "Failed to create payment intent"}), 502
+    except Exception as e:
+        app.logger.error(f"Error creating payment intent: {e}")
+        return jsonify({"error": f"Payment intent creation failed: {str(e)}"}), 500
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8101, debug=True)

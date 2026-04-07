@@ -223,6 +223,25 @@ services:
     ports:
       - "8101:8101"
 
+
+#third-party services
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    restart: unless-stopped
+    networks:
+      - kong-net
+    environment:
+      - STRIPE_API_KEY=${STRIPE_API_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_DEVICE_NAME=${STRIPE_DEVICE_NAME}
+    command: |
+      listen --api-key ${STRIPE_API_KEY}
+      --device-name ${STRIPE_DEVICE_NAME}
+      --load-from-webhooks-api
+      --skip-verify
+      --skip-update
+      --forward-to http://kong:8880/payment/webhook
+
 networks:
   kong-net:
     driver: bridge

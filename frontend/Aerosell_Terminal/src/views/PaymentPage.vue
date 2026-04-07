@@ -15,6 +15,7 @@ const processing = ref(false);
 const paymentMessage = ref("");
 const stripe = ref(null);
 const elements = ref(null);
+const cardElement = ref(null);
 
 // Get validation data from state
 const validationData = computed(() => state.validationData || {});
@@ -24,10 +25,40 @@ const canPay = computed(() =>
   Boolean(validationData.value.user_id && validationData.value.delivery_cost),
 );
 
+// Initialize Stripe Elements
+const initializeStripe = async () => {
+  stripe.value = await stripePromise;
+  elements.value = stripe.value.elements();
+
+  // Create and mount card element
+  cardElement.value = elements.value.create("card", {
+    style: {
+      base: {
+        fontSize: "16px",
+        color: "#32325d",
+        "::placeholder": {
+          color: "#aab7c4",
+        },
+      },
+      invalid: {
+        color: "#fa755a",
+        iconColor: "#fa755a",
+      },
+    },
+  });
+
+  cardElement.value.mount("#card-element");
+};
+
 const pay = async () => {
   if (!canPay.value) {
     paymentMessage.value =
       "Validation data is required. Please complete the booking form first.";
+    return;
+  }
+
+  if (!stripe.value || !cardElement.value) {
+    paymentMessage.value = "Payment system not initialized";
     return;
   }
 
@@ -37,7 +68,28 @@ const pay = async () => {
   try {
     console.log("Processing payment and confirmation for booking validation");
 
-    // Phase 2: Call confirm endpoint to process payment and create order
+    // Step 1: Confirm the payment using Stripe Elements
+    const { error: stripeError, paymentIntent } =
+      await stripe.value.confirmCardPayment(clientSecret.value, {
+        payment_method: {
+          card: cardElement.value,
+          billing_details: {
+            name: cardHolderName.value,
+          },
+        },
+      });
+
+    if (stripeError) {
+      throw new Error(stripeError.message || "Card payment failed");
+    }
+
+    if (paymentIntent.status !== "succeeded") {
+      throw new Error(
+        `Payment status: ${paymentIntent.status}. Payment must succeed to proceed.`,
+      );
+    }
+
+    // Payment succeeded! Now create the order
     const confirmationData = {
       user_id: validationData.value.user_id,
       drone_id: validationData.value.drone_id,
@@ -47,10 +99,10 @@ const pay = async () => {
       delivery_cost: validationData.value.delivery_cost,
       payment_method: "stripe",
       payment_details: {
-        card_holder: cardHolderName.value,
-        card_number: cardNumber.value,
-        expiry: expiryDate.value,
-        cvc: cvc.value,
+        payment_intent_id: paymentIntent.id,
+        payment_method_id: paymentIntent.payment_method,
+        amount: paymentIntent.amount / 100, // Convert from cents
+        currency: paymentIntent.currency,
       },
       route_validation: validationData.value.route_validation,
     };
@@ -60,7 +112,7 @@ const pay = async () => {
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(
-        errorData.error || `Payment failed: ${response.statusText}`,
+        errorData.error || `Order creation failed: ${response.statusText}`,
       );
     }
 
@@ -85,7 +137,7 @@ const pay = async () => {
       // Navigate to confirmation page
       router.push("/confirmation");
     } else {
-      throw new Error(result.error || "Payment failed");
+      throw new Error(result.error || "Order creation failed");
     }
   } catch (error) {
     console.error("Payment error:", error);
@@ -98,40 +150,36 @@ const pay = async () => {
   }
 };
 
-// Payment form fields
+// Payment form fields - only cardholder name needed for billing details
 const cardHolderName = ref("");
-const cardNumber = ref("");
-const expiryDate = ref("");
-const cvc = ref("");
 
-// Format card number as 4242 4242 4242 4242
-const formatCardNumber = (event) => {
-  const digitsOnly = event.target.value.replace(/\D/g, "").slice(0, 16);
-  const formatted = digitsOnly.replace(/(\d{4})(?!$)/g, "$1 ");
-  event.target.value = formatted;
-  cardNumber.value = formatted;
-};
+// Will hold the client secret from backend
+const clientSecret = ref("");
 
-// Format expiry as MM/YY
-const formatExpiry = (event) => {
-  const digitsOnly = event.target.value.replace(/\D/g, "").slice(0, 4);
-  let formatted = digitsOnly;
-  if (digitsOnly.length >= 3) {
-    formatted = digitsOnly.slice(0, 2) + "/" + digitsOnly.slice(2);
+// Initialize Stripe Elements and page
+onMounted(async () => {
+  // Initialize Stripe Elements first
+  await initializeStripe();
+
+  // Create payment intent to get client_secret
+  try {
+    const response = await bookDroneAPI.createPaymentIntent(
+      deliveryCost.value,
+      "SGD",
+    );
+    if (response.ok) {
+      const result = await response.json();
+      clientSecret.value = result.client_secret;
+      console.log("PaymentIntent created, client_secret received");
+    } else {
+      paymentMessage.value = "Failed to initialize payment system";
+    }
+  } catch (error) {
+    console.error("Error creating payment intent:", error);
+    paymentMessage.value = "Error initializing payment";
   }
-  event.target.value = formatted;
-  expiryDate.value = formatted;
-};
 
-// Format CVC as 123 or 1234
-const formatCvc = (event) => {
-  const digitsOnly = event.target.value.replace(/\D/g, "").slice(0, 4);
-  event.target.value = digitsOnly;
-  cvc.value = digitsOnly;
-};
-
-// Initialize page - verify validation exists
-onMounted(() => {
+  // Then check validation
   if (!validationData.value.user_id) {
     paymentMessage.value =
       "No booking validation found. Please complete your booking first.";
@@ -141,49 +189,22 @@ onMounted(() => {
 
 <template>
   <section class="panel payment-panel">
-    <div>
+    <div class="payment-form">
       <h2>Payment</h2>
-      <div class="payment-form">
-        <label>
-          Cardholder Name
-          <input
-            v-model="cardHolderName"
-            type="text"
-            placeholder="John Doe"
-            required
-          />
-        </label>
-        <label>
-          Card Number
-          <input
-            v-model="cardNumber"
-            type="text"
-            placeholder="4242 4242 4242 4242"
-            maxlength="19"
-            pattern="[0-9\s]{13,19}" 
-            @input="formatCardNumber"
-            required
-          />
-        </label>
-        <div class="inline-fields">
-          <label>
-            Expiration (MM/YY)
-            <input
-              v-model="expiryDate"
-              type="text"
-              placeholder="MM/YY"
-              maxlength="5"
-              pattern="(0[1-9]|1[0-2])\/?([0-9]{2})"
-              @input="formatExpiry"
-              required
-            />
-          </label>
-          <label>
-            CVC
-            <input v-model="cvc" type="text" placeholder="123" maxlength="4" pattern="[0-9]{3,4}" @input="formatCvc" required />
-          </label>
-        </div>
-      </div>
+      <label>
+        Cardholder Name
+        <input
+          v-model="cardHolderName"
+          type="text"
+          placeholder="John Doe"
+          required
+        />
+      </label>
+      <label>
+        Card Details
+        <div id="card-element" class="stripe-card-input"></div>
+        <div id="card-errors" role="alert" class="stripe-error"></div>
+      </label>
       <button
         class="btn btn-primary wide"
         :disabled="processing || !canPay"
@@ -278,5 +299,19 @@ onMounted(() => {
 
 .wide {
   width: 100%;
+}
+
+.stripe-card-input {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: white;
+  min-height: 38px;
+}
+
+.stripe-error {
+  color: #e53e3e;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
 }
 </style>
