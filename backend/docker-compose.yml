@@ -235,12 +235,11 @@ services:
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
       - STRIPE_DEVICE_NAME=${STRIPE_DEVICE_NAME}
     command: |
-      listen --api-key ${STRIPE_API_KEY}
-      --device-name ${STRIPE_DEVICE_NAME}
-      --load-from-webhooks-api
+      listen --api-key $$STRIPE_API_KEY
+      --device-name $$STRIPE_DEVICE_NAME
       --skip-verify
       --skip-update
-      --forward-to http://kong:8880/payment/webhook
+      --forward-to http://kong:8000/payment/webhook
 
 networks:
   kong-net:
