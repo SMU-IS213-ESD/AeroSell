@@ -1,16 +1,23 @@
 <script setup>
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useAppStore } from "../store/appStore";
 
 const router = useRouter();
 const { state } = useAppStore();
 
+console.log("ConfirmationPage state:", {
+  paymentComplete: state.payment.complete,
+  pickupPin: state.delivery.pickupPin,
+  delivery: state.delivery
+});
+
 const hasConfirmation = computed(
   () => state.payment.complete && state.delivery.pickupPin,
 );
 
 if (!hasConfirmation.value) {
+  console.log("No confirmation data, redirecting to /book");
   router.replace("/book");
 }
 </script>

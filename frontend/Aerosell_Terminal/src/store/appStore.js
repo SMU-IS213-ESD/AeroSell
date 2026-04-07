@@ -178,7 +178,7 @@ export const useAppStore = () => {
     }
   }
 
-  const completeStripePayment = (paymentReference = '') => {
+  const completeStripePayment = (paymentReference = '', pickupPin = '', orderId = '') => {
     const now = new Date().toISOString()
     const milestones = statusTemplate.map((item, index) => ({
       ...item,
@@ -189,15 +189,15 @@ export const useAppStore = () => {
     state.payment = {
       complete: true,
       provider: 'stripe',
-      orderId: state.payment.orderId || '',
+      orderId: orderId || state.payment.orderId || '',
       reference: paymentReference || `pi_demo_${Date.now()}`,
       paidAt: now,
     }
 
     const deliveryRecord = {
       ownerEmail: state.user?.email || state.booking.recipientEmail || '',
-      trackingCode: randomTrackingCode(),
-      pickupPin: randomSixDigitPin(),
+      trackingCode: orderId ? `AS-${orderId}` : randomTrackingCode(),
+      pickupPin: pickupPin ?? randomSixDigitPin(),
       status: 'scheduled',
       milestones,
     }
