@@ -31,6 +31,7 @@ class Order(db.Model):
     item_description = db.Column(db.String(255))
     status = db.Column(db.String(50), default="CREATED")
     drone_id = db.Column(db.Integer, nullable=False)
+    pickup_pin = db.Column(db.String(8))  # 8-digit pickup PIN
     created = db.Column(db.DateTime, nullable=False, default=datetime.now)
     modified = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
@@ -43,6 +44,7 @@ class Order(db.Model):
             'item_description': self.item_description,
             'status': self.status,
             'drone_id': self.drone_id,
+            'pickup_pin': self.pickup_pin,
             'created': self.created,
             'modified': self.modified
         }
@@ -141,6 +143,7 @@ def create_order():
         dropoff_location=data.get("dropoff_location"),
         item_description=data.get("item_description"),
         drone_id=data.get("drone_id"),
+        pickup_pin=data.get("pickup_pin"),
         status="CREATED"
     )
 

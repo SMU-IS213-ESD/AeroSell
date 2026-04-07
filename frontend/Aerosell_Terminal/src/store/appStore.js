@@ -142,7 +142,7 @@ const calculateQuote = (booking) => {
   }
 }
 
-const randomSixDigitPin = () => Math.floor(100000 + Math.random() * 900000).toString()
+const randomEightDigitPin = () => Math.floor(10000000 + Math.random() * 90000000).toString()
 
 const randomTrackingCode = () => {
   const stamp = Date.now().toString().slice(-6)
@@ -178,7 +178,7 @@ export const useAppStore = () => {
     }
   }
 
-  const completeStripePayment = (paymentReference = '') => {
+  const completeStripePayment = (paymentReference = '', backendPickupPin = null) => {
     const now = new Date().toISOString()
     const milestones = statusTemplate.map((item, index) => ({
       ...item,
@@ -197,7 +197,7 @@ export const useAppStore = () => {
     const deliveryRecord = {
       ownerEmail: state.user?.email || state.booking.recipientEmail || '',
       trackingCode: randomTrackingCode(),
-      pickupPin: randomSixDigitPin(),
+      pickupPin: backendPickupPin || randomEightDigitPin(),
       status: 'scheduled',
       milestones,
     }

@@ -80,7 +80,7 @@ const pay = async () => {
       };
 
       // Update payment in store
-      completeStripePayment(result.payment_id);
+      completeStripePayment(result.payment_id, result.pickup_pin);
 
       // Navigate to confirmation page
       router.push("/confirmation");

@@ -187,6 +187,10 @@ def process_payment(user_id, amount, payment_method):
 def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, payment_details):
     """Create order record with payment details"""
     try:
+        # Generate 8-digit pickup PIN
+        import random
+        pickup_pin = str(random.randint(10000000, 99999999))
+
         payload = {
             'user_id': str(user_id),
             'drone_id': drone_id,
@@ -194,6 +198,7 @@ def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, paym
             'dropoff_location': dropoff,
             'item_description': f"Delivery booking - {timeslot}",
             'status': 'CONFIRMED',
+            'pickup_pin': pickup_pin,
             'payment_details': payment_details
         }
 
@@ -204,7 +209,11 @@ def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, paym
         )
 
         if response.status_code in [200, 201]:
-            return response.json()
+            result = response.json()
+            # Add pickup_pin to the result so it can be returned to frontend
+            if result and 'order_id' in result:
+                result['pickup_pin'] = pickup_pin
+            return result
         return None
     except Exception as e:
         app.logger.error(f"Error creating order: {e}")
@@ -543,8 +552,9 @@ def confirm_booking():
             return jsonify({'error': 'Order creation failed'}), 500
 
         order_id = order_data.get('order_id')
+        pickup_pin = order_data.get('pickup_pin')
 
-        app.logger.info(f"Order created successfully. Order ID: {order_id}")
+        app.logger.info(f"Order created successfully. Order ID: {order_id}, Pickup PIN: {pickup_pin}")
 
         # Generate a booking ID for tracking
         booking_id = str(uuid.uuid4())
@@ -559,6 +569,7 @@ def confirm_booking():
             'dropoff_location': dropoff_location,
             'timeslot': timeslot.isoformat(),
             'amount_paid': delivery_cost,
+            'pickup_pin': pickup_pin,
             'status': 'CONFIRMED'
         }
 
@@ -575,6 +586,7 @@ def confirm_booking():
             'payment_id': payment_id,
             'drone_id': drone_id,
             'amount_paid': delivery_cost,
+            'pickup_pin': pickup_pin,
             'status': 'CONFIRMED',
             'message': 'Booking confirmed successfully'
         }), 201
