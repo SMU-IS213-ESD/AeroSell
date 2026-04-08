@@ -133,9 +133,11 @@ def create_assignment():
 	data = request.get_json(silent=True)
 	required_fields = ["staff_id", "drone_id", "longitude", "latitude"]
 	if not data or not all(field in data for field in required_fields):
+		print(f"[Operations-Support] POST /operations-support/assignment - Missing required fields", flush=True)
 		abort(400, "Missing required fields")
 	staff = SupportStaff.query.get(data["staff_id"])
 	if not staff:
+		print(f"[Operations-Support] POST /operations-support/assignment - Staff {data['staff_id']} NOT found", flush=True)
 		abort(404, "Staff not found")
 	assignment = Assignment(
 		staff_id=data["staff_id"],
@@ -146,6 +148,7 @@ def create_assignment():
 	)
 	db.session.add(assignment)
 	db.session.commit()
+	print(f"[Operations-Support] POST /operations-support/assignment - Created assignment {assignment.id}: Staff {data['staff_id']} → Drone {data['drone_id']}", flush=True)
 	return assignment
 
 
@@ -224,6 +227,18 @@ def get_staff():
 	return staff_list
 
 
+@app.get("/operations-support/staff/available")
+@app.output(List[SupportStaffOut])
+@app.doc(tags=["SupportStaff"])
+def get_available_staff():
+	"""Get only available support staff members"""
+	available_staff = SupportStaff.query.filter_by(is_available=True).all()
+	print(f"[Operations-Support] GET /operations-support/staff/available - Found {len(available_staff)} available staff", flush=True)
+	for staff in available_staff:
+		print(f"[Operations-Support]   - Staff {staff.id}: {staff.name} ({staff.email})", flush=True)
+	return available_staff
+
+
 # Get a single staff member by ID
 @app.get("/operations-support/staff/<int:staff_id>")
 @app.output(SupportStaffOut)
@@ -257,12 +272,6 @@ def delete_staff(staff_id):
 	db.session.delete(staff)
 	db.session.commit()
 	return jsonify({"message": "Staff deleted"}), 200
-
-# Get only available staff
-@app.route("/operations-support/staff/available", methods=["GET"])
-def get_available_staff():
-	staff_list = SupportStaff.query.filter_by(is_available=True).all()
-	return jsonify([s.json() for s in staff_list]), 200
 
 @app.route("/db-check", methods=["GET"])
 def db_check():

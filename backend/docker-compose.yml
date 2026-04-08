@@ -101,21 +101,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-  error:
-    build: ./services/atomic/error
-    volumes:
-      - ./services/atomic/error/app:/app
-    networks:
-      - kong-net
-    ports:
-      - "8003:8003"
-    environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/error_db
-      - rabbit_host=${rabbit_host}
-      - rabbit_port=${rabbit_port}
-    depends_on:
-      db:
-        condition: service_healthy
 
   flight-planning:
     build: ./services/atomic/flight-planning
@@ -217,6 +202,20 @@ services:
       - RABBITMQ_URL=${RABBITMQ_URL}
 
 # composite services
+  anomaly-manager:
+    build: ./services/composite/anomaly-manager
+    networks:
+      - kong-net
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - ORDER_SERVICE_URL=http://order:8006
+      - SUPPORT_SERVICE_URL=http://operations-support:8005
+      - USER_SERVICE_URL=http://user:8008
+    depends_on:
+      - order
+      - operations-support
+      - user
+
   book-drone:
     build: ./services/composite/book-drone
     volumes:

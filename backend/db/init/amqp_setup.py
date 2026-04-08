@@ -12,12 +12,14 @@ Run this once during system initialization to configure RabbitMQ.
 
 import pika
 import sys
+import os
+from os import environ
 
-# Configuration
-AMQP_HOST = "rmqbroker.dodieboy.qzz.io"
-AMQP_PORT = 5672
-AMQP_USERNAME = "admin"
-AMQP_PASSWORD = "58nczhxy"
+# Configuration - Read from environment variables
+AMQP_HOST = environ.get("AMQP_HOST")
+AMQP_PORT = int(environ.get("AMQP_PORT", "5672"))
+AMQP_USERNAME = environ.get("AMQP_USERNAME", "guest")
+AMQP_PASSWORD = environ.get("AMQP_PASSWORD", "guest")
 AMQP_HEARTBEAT = 300
 AMQP_BLOCKED_TIMEOUT = 300
 
@@ -54,7 +56,7 @@ QUEUES = [
         "arguments": {
             "x-dead-letter-exchange": "repair_dlx",
             "x-dead-letter-routing-key": "repair.retry",
-            "x-message-ttl": 30000,  # 30 seconds in milliseconds
+            "x-message-ttl": 3000,  # 3 seconds in milliseconds
         },
     },
     # Dead letter queue for repair retries
@@ -173,7 +175,7 @@ def main():
         print("\nKey Components:")
         print("  • drone_anomaly exchange: Publishes drone error events")
         print("  • repair_exchange: Direct queue for repair request orchestration")
-        print("  • repair_dlx: Dead letter exchange for retry logic (30s TTL)")
+        print("  • repair_dlx: Dead letter exchange for retry logic (3s TTL)")
         print("  • notification_exchange: Topic for customer/staff notifications")
         print("=" * 70)
         

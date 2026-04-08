@@ -11,51 +11,11 @@ import os
 
 app = APIFlask(__name__)
 
-# --- RabbitMQ (AMQP) persistent connection setup ---
-rabbitmq_connection = None
-rabbitmq_channel = None
-
 # --- Active drones tracking ---
 active_drones = [1]  
 telemetry_thread = None
 telemetry_stop_event = threading.Event()
 is_error = False  # Simulated error status for telemetry
-
-def open_rabbitmq_connection():
-	global rabbitmq_connection, rabbitmq_channel
-	rabbitmq_url = os.environ.get("RABBITMQ_URL")
-	params = pika.URLParameters(rabbitmq_url)
-	rabbitmq_connection = pika.BlockingConnection(params)
-	rabbitmq_channel = rabbitmq_connection.channel()
-	# Only declare exchange for publishing - don't declare/bind queues (consumer's job)
-	exchange = 'drone'
-	rabbitmq_channel.exchange_declare(exchange=exchange, exchange_type='direct', durable=True)
-
-def close_rabbitmq_connection(e=None):
-	global rabbitmq_connection, rabbitmq_channel
-	if rabbitmq_channel:
-		try:
-			rabbitmq_channel.close()
-		except Exception:
-			pass
-		rabbitmq_channel = None
-	if rabbitmq_connection:
-		try:
-			rabbitmq_connection.close()
-		except Exception:
-			pass
-		rabbitmq_connection = None
-
-def publish_message(exchange, routing_key, body, properties=None):
-	global rabbitmq_channel
-	if rabbitmq_channel is None:
-		raise RuntimeError("RabbitMQ channel is not initialized.")
-	rabbitmq_channel.basic_publish(
-		exchange=exchange,
-		routing_key=routing_key,
-		body=body,
-		properties=properties
-	)
 
 
 def continuous_telemetry_publisher():
@@ -113,12 +73,11 @@ def continuous_telemetry_publisher():
 				print(f"Error closing connection: {e}", flush=True)
 
 
-# Register teardown for app context (like drone service)
+# Register teardown for app context
 @app.teardown_appcontext
 def shutdown(response_or_exc=None):
 	global telemetry_stop_event
 	telemetry_stop_event.set()
-	close_rabbitmq_connection()
 
 
 class OrderInfoSchema(Schema):
@@ -255,10 +214,6 @@ def activate_drone(json_data, drone_id):
 
 
 if __name__ == '__main__':
-	with app.app_context():
-		# Open RabbitMQ connection before starting Flask app
-		open_rabbitmq_connection()
-	
 	# Start the continuous telemetry publisher thread
 	telemetry_stop_event.clear()
 	telemetry_thread = threading.Thread(target=continuous_telemetry_publisher, daemon=True)
