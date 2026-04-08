@@ -75,6 +75,21 @@ export const bookDroneAPI = {
   getUserBookings: async (userId) => {
     const response = await authFetch(`/book-drone/bookings/user/${userId}`)
     return response
+  },
+
+  // Create payment intent for Stripe Elements
+  createPaymentIntent: async (amount, currency = "SGD", orderData = null) => {
+    const response = await authFetch("/book-drone/create-payment-intent", {
+      method: "POST",
+      body: JSON.stringify({ amount, currency, order_data: orderData })
+    })
+    return response
+  },
+
+  // Get payment details by ID
+  getPayment: async (paymentId) => {
+    const response = await authFetch(`/book-drone/payments/${paymentId}`)
+    return response
   }
 }
 

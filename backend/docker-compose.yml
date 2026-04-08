@@ -156,6 +156,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/order_db
       - RABBITMQ_URL=${RABBITMQ_URL}
+      - TZ=Asia/Singapore
     depends_on:
       db:
         condition: service_healthy
@@ -172,6 +173,8 @@ services:
       DATABASE_URL: postgresql://user:password@db:5432/payment_db
       STRIPE_API_KEY: ${STRIPE_API_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      ORDER_SERVICE_URL: http://order:8006
+      TZ: Asia/Singapore
     depends_on:
       db:
         condition: service_healthy
@@ -222,6 +225,26 @@ services:
       - kong-net
     ports:
       - "8101:8101"
+    environment:
+      - TZ=Asia/Singapore
+
+
+#third-party services
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    restart: unless-stopped
+    networks:
+      - kong-net
+    environment:
+      - STRIPE_API_KEY=${STRIPE_API_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_DEVICE_NAME=${STRIPE_DEVICE_NAME}
+    command: |
+      listen --api-key $$STRIPE_API_KEY
+      --device-name $$STRIPE_DEVICE_NAME
+      --skip-verify
+      --skip-update
+      --forward-to http://kong:8000/payment/webhook
 
 networks:
   kong-net:
