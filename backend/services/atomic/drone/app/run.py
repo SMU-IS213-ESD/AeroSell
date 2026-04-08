@@ -23,6 +23,7 @@ from flask import jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from datetime import datetime
 import os
 import time
 import threading
@@ -146,10 +147,18 @@ def telemetry_callback(ch, method, properties, body):
 		data = json.loads(body)
 		print("[Telemetry] Received:", data, flush=True)
 		drone_id = data.get("drone_id")
-		timestamp = data.get("timestamp")
+		timestamp_str = data.get("timestamp")
 		error = data.get("error")
 		current_longitude = data.get("current_longitude")
 		current_latitude = data.get("current_latitude")
+		
+		# Parse timestamp string to datetime object
+		try:
+			timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else None
+		except (ValueError, TypeError) as e:
+			print(f"[Telemetry] Invalid timestamp format: {timestamp_str}, {e}", flush=True)
+			timestamp = None
+		
 		# Update telemetry table
 		with app.app_context():
 			drone = Drone.query.get(drone_id)
@@ -164,11 +173,49 @@ def telemetry_callback(ch, method, properties, body):
 			)
 			db.session.add(telemetry)
 			db.session.commit()
+			
+			# Check for anomaly and handle if error detected
+			if error:
+				handle_drone_anomaly(drone, timestamp, current_longitude, current_latitude)
 	except Exception as e:
 		app.logger.exception("Failed to process telemetry message")
+		print(f"[Telemetry] Exception: {e}", flush=True)
 
-#TODO: this is a function meant for telemetry_callback to call, when it receives telemetry that has error = True, and after saving it in the database, it will publish a message 
-#to a drone anomaly exchange
+
+def handle_drone_anomaly(drone, timestamp, current_longitude, current_latitude):
+	"""Handle drone anomaly: update status and publish anomaly message.
+	
+	Args:
+		drone: Drone object (already queried to avoid redundant DB query)
+		timestamp: Timestamp from telemetry
+		current_longitude: Drone longitude
+		current_latitude: Drone latitude
+	"""
+	try:
+		# 1. Update drone status to pending_maintenance
+		if drone:
+			drone.status = "pending_maintenance"
+			db.session.commit()
+			print(f"[Anomaly] Drone {drone.id} status updated to pending_maintenance", flush=True)
+		
+		# 2. Publish drone.anomaly message
+		anomaly_msg = {
+			"drone_id": drone.id,
+			"timestamp": timestamp,
+			"current_longitude": current_longitude,
+			"current_latitude": current_latitude
+		}
+		
+		publish_message(
+			exchange="drone_anomaly",
+			routing_key="drone.anomaly",
+			body=json.dumps(anomaly_msg),
+			properties=pika.BasicProperties(delivery_mode=2, content_type='application/json')
+		)
+		print(f"[Anomaly] Published drone.anomaly message: {anomaly_msg}", flush=True)
+	except Exception as e:
+		app.logger.exception(f"Failed to handle drone anomaly for drone {drone.id if drone else 'unknown'}")
+		print(f"[Anomaly] Error handling anomaly: {e}", flush=True)
 
 
 def flight_update_callback(ch, method, properties, body):
@@ -205,6 +252,11 @@ def amqp_consumer_thread():
 			# Declare queues (idempotent)
 			channel.queue_declare(queue='telemetry', durable=True)
 			channel.queue_declare(queue='flight_update', durable=True)
+			# Bind queues to exchange
+			channel.queue_bind(exchange='drone', queue='telemetry', routing_key='telemetry')
+			channel.queue_bind(exchange='drone', queue='flight_update', routing_key='flight_update')
+			# Set QoS to process one message at a time from each queue
+			channel.basic_qos(prefetch_count=1)
 			# Set up consumers
 			channel.basic_consume(queue='telemetry', on_message_callback=telemetry_callback, auto_ack=True)
 			channel.basic_consume(queue='flight_update', on_message_callback=flight_update_callback, auto_ack=True)

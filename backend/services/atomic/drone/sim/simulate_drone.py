@@ -18,7 +18,7 @@ rabbitmq_channel = None
 # --- Active drones tracking ---
 active_drones = [1]  
 telemetry_thread = None
-telemetry_running = False
+telemetry_stop_event = threading.Event()
 is_error = False  # Simulated error status for telemetry
 
 def open_rabbitmq_connection():
@@ -27,15 +27,9 @@ def open_rabbitmq_connection():
 	params = pika.URLParameters(rabbitmq_url)
 	rabbitmq_connection = pika.BlockingConnection(params)
 	rabbitmq_channel = rabbitmq_connection.channel()
-	# Declare exchange and queues once at startup
+	# Only declare exchange for publishing - don't declare/bind queues (consumer's job)
 	exchange = 'drone'
-	telemetry_queue = 'telemetry'
-	flight_update_queue = 'flight_update'
 	rabbitmq_channel.exchange_declare(exchange=exchange, exchange_type='direct', durable=True)
-	rabbitmq_channel.queue_declare(queue=telemetry_queue, durable=True)
-	rabbitmq_channel.queue_declare(queue=flight_update_queue, durable=True)
-	rabbitmq_channel.queue_bind(exchange=exchange, queue=telemetry_queue)
-	rabbitmq_channel.queue_bind(exchange=exchange, queue=flight_update_queue)
 
 def close_rabbitmq_connection(e=None):
 	global rabbitmq_connection, rabbitmq_channel
@@ -66,7 +60,7 @@ def publish_message(exchange, routing_key, body, properties=None):
 
 def continuous_telemetry_publisher():
 	"""Background thread that publishes telemetry for all active drones every 2 seconds."""
-	global active_drones, telemetry_running,is_error
+	global active_drones, telemetry_stop_event, is_error
 	import pika
 	
 	exchange = 'drone'
@@ -80,13 +74,12 @@ def continuous_telemetry_publisher():
 	try:
 		connection = pika.BlockingConnection(params)
 		channel = connection.channel()
-		# Ensure exchange and queues exist
+		# Only declare exchange for publishing - don't declare/bind queues (consumer's job)
 		channel.exchange_declare(exchange=exchange, exchange_type='direct', durable=True)
-		channel.queue_declare(queue=telemetry_queue, durable=True)
-		channel.queue_bind(exchange=exchange, queue=telemetry_queue)
 		
-		while telemetry_running:
-			for drone_id  in active_drones:
+		while not telemetry_stop_event.is_set():
+			print(f"{is_error}", flush=True)
+			for drone_id in active_drones:
 				telemetry_msg = {
 					'drone_id': drone_id,
 					'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
@@ -101,29 +94,30 @@ def continuous_telemetry_publisher():
 					properties=pika.BasicProperties(delivery_mode=2)
 				)
 				print(f"Published telemetry for drone {drone_id}: {telemetry_msg}", flush=True)
-			time.sleep(2)  # Publish every 2 seconds
 			if is_error:
-				telemetry_running = False  # Stop telemetry if error is simulated
+				telemetry_stop_event.set()  # Stop telemetry if error is simulated
+			time.sleep(2)  # Publish every 2 seconds
 	except Exception as e:
 		print(f"[Telemetry Thread] Failed: {e}", flush=True)
 	finally:
+		print(f"{is_error}", flush=True)
 		if channel:
 			try:
 				channel.close()
-			except Exception:
-				pass
+			except Exception as e:
+				print(f"Error closing channel: {e}", flush=True)
 		if connection:
 			try:
 				connection.close()
-			except Exception:
-				pass
+			except Exception as e:
+				print(f"Error closing connection: {e}", flush=True)
 
 
 # Register teardown for app context (like drone service)
 @app.teardown_appcontext
 def shutdown(response_or_exc=None):
-	global telemetry_running
-	telemetry_running = False
+	global telemetry_stop_event
+	telemetry_stop_event.set()
 	close_rabbitmq_connection()
 
 
@@ -146,10 +140,8 @@ def publish_landing_event(drone_id, order_info):
 	try:
 		connection = pika.BlockingConnection(params)
 		channel = connection.channel()
-		# Ensure queues exist
+		# Only declare exchange for publishing - don't declare/bind queues (consumer's job)
 		channel.exchange_declare(exchange=exchange, exchange_type='direct', durable=True)
-		channel.queue_declare(queue=flight_update_queue, durable=True)
-		channel.queue_bind(exchange=exchange, queue=flight_update_queue)
 		
 		landing_msg = {
 			'drone_id': drone_id,
@@ -202,16 +194,49 @@ def drone_flight_simulator(drone_id, order_info, duration=10, interval=0.5):
 def simulate_error():
 	global is_error
 	is_error = True
-	return {'message': 'Error simulated.'}, 200
+	
+	# Publish error telemetry immediately with fresh connection
+	rabbitmq_url = os.environ.get("RABBITMQ_URL")
+	connection = None
+	channel = None
+	try:
+		params = pika.URLParameters(rabbitmq_url)
+		connection = pika.BlockingConnection(params)
+		channel = connection.channel()
+		channel.exchange_declare(exchange='drone', exchange_type='direct', durable=True)
+		
+		error_telemetry = {
+			'drone_id': 1,
+			'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
+			'error': True,
+			'current_longitude': -122.4194,
+			'current_latitude': 37.7749
+		}
+		channel.basic_publish(
+			exchange='drone',
+			routing_key='telemetry',
+			body=json.dumps(error_telemetry),
+			properties=pika.BasicProperties(delivery_mode=2)
+		)
+		print(f"Published ERROR telemetry: {error_telemetry}", flush=True)
+	except Exception as e:
+		print(f"Failed to publish error telemetry: {e}", flush=True)
+	finally:
+		if channel:
+			try:
+				channel.close()
+			except Exception:
+				pass
+		if connection:
+			try:
+				connection.close()
+			except Exception:
+				pass
+	
+	return {'message': 'Error telemetry published.'}, 200
 
-@app.post('/dronesim/reset')
-def reset_simulation():
-	global is_error, telemetry_running, telemetry_thread
-	is_error = False  # Reset error status
-	telemetry_running = True  # Ensure telemetry thread is running
-	telemetry_thread = threading.Thread(target=continuous_telemetry_publisher, daemon=True)
-	telemetry_thread.start()
-	return {'message': 'Drone simulation reset. Active drones set to [1].'}, 200
+#removed reset endpoint, use docker compose restart drone-sim instead
+
 
 @app.post('/dronesim/activate/<int:drone_id>')
 @app.input(OrderInfoSchema, location='json')
@@ -235,7 +260,7 @@ if __name__ == '__main__':
 		open_rabbitmq_connection()
 	
 	# Start the continuous telemetry publisher thread
-	telemetry_running = True
+	telemetry_stop_event.clear()
 	telemetry_thread = threading.Thread(target=continuous_telemetry_publisher, daemon=True)
 	telemetry_thread.start()
 	
