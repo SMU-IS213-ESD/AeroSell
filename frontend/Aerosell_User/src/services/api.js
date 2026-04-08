@@ -115,7 +115,30 @@ export const flightPlanningAPI = {
   }
 }
 
+// Insurance Claim Service API
+export const insuranceClaimAPI = {
+  submitClaim: async (claimData) => {
+    const response = await authFetch("/insurance-claim/submit", {
+      method: "POST",
+      body: JSON.stringify(claimData)
+    });
+    return response;
+  },
+
+  getClaim: async (claimId) => {
+    const response = await authFetch(`/insurance-claim/claims/${claimId}`);
+    return response;
+  },
+
+  getUserClaims: async (userId) => {
+    const response = await authFetch(`/insurance-claim/user/${userId}`);
+    return response;
+  }
+}
+
 export default {
   authFetch,
   bookDroneAPI,
+  flightPlanningAPI,
+  insuranceClaimAPI,
 }

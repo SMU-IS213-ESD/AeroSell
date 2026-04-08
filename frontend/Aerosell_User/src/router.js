@@ -3,6 +3,7 @@ import HomePage from './views/HomePage.vue'
 import LoginPage from './views/LoginPage.vue'
 import RegisterPage from './views/RegisterPage.vue'
 import StatusPage from './views/StatusPage.vue'
+import ClaimPage from './views/ClaimPage.vue'
 import { useAppStore } from './store/appStore'
 
 const routes = [
@@ -10,6 +11,7 @@ const routes = [
   { path: '/login', name: 'login', component: LoginPage },
   { path: '/register', name: 'register', component: RegisterPage },
   { path: '/status', name: 'status', component: StatusPage, meta: { requiresAuth: true } },
+  { path: '/claim/:trackingCode', name: 'claim', component: ClaimPage, meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({

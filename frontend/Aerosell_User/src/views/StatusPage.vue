@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { useAppStore } from "../store/appStore";
+import { useRouter } from "vue-router";
 
+const router = useRouter();
 const { state, advanceStatus, fetchUserOrders } = useAppStore();
 
 const query = ref("");
@@ -37,6 +39,10 @@ const visibleOrders = computed(() => {
 });
 
 const formatStatus = (value) => String(value || "").replace("_", " ");
+
+const navigateToClaim = (trackingCode) => {
+  router.push({ name: "claim", params: { trackingCode } });
+};
 </script>
 
 <template>
@@ -85,6 +91,13 @@ const formatStatus = (value) => String(value || "").replace("_", " ");
             <span>{{ item.complete ? "Done" : "Pending" }}</span>
           </li>
         </ul>
+        <button
+          class="btn btn-secondary"
+          @click="navigateToClaim(delivery.trackingCode)"
+          style="margin-top: 12px"
+        >
+          Claim damage
+        </button>
         <!-- <button
           class="btn btn-primary"
           :disabled="delivery.status === 'delivered'"
