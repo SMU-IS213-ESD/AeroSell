@@ -41,6 +41,7 @@ const formatStatus = (value) => String(value || "").replace("_", " ");
         class="status-card"
       >
         <p><strong>Tracking:</strong> {{ delivery.trackingCode }}</p>
+      <p><strong>Pickup Pin:</strong> {{ delivery.pickupPin }}</p>
         <p>
           <strong>Route:</strong> {{ delivery.fromLocation }} ->
           {{ delivery.toLocation }}

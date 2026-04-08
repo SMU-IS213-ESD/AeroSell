@@ -211,6 +211,7 @@ export const useAppStore = () => {
         toLocation: state.booking.toLocation,
         pickupDate: state.booking.pickupDate,
         pickupTime: state.booking.pickupTime,
+      pickupPin: deliveryRecord.pickupPin,
         status: deliveryRecord.status,
         milestones: cloneMilestones(deliveryRecord.milestones),
         createdAt: now,
