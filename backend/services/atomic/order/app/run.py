@@ -137,13 +137,15 @@ def get_all():
 @app.route("/order", methods=["POST"])
 def create_order():
     data = request.json
+    import random
+    pickup_pin = str(random.randint(10000000, 99999999))
     order = Order(
         user_id=data.get("user_id"),
         pickup_location=data.get("pickup_location"),
         dropoff_location=data.get("dropoff_location"),
         item_description=data.get("item_description"),
         drone_id=data.get("drone_id"),
-        pickup_pin=data.get("pickup_pin"),
+        pickup_pin=pickup_pin,
         status="CREATED"
     )
 

@@ -698,6 +698,11 @@ def create_payment_intent():
             "currency": currency
         }
 
+        # Add order_data if provided (needed for webhook-driven order creation)
+        order_data = data.get("order_data")
+        if order_data:
+            payload["order_data"] = order_data
+
         response = requests.post(
             f"{PAYMENT_SERVICE_URL}/",
             json=payload,
@@ -734,5 +739,25 @@ def create_payment_intent():
     except Exception as e:
         app.logger.error(f"Error creating payment intent: {e}")
         return jsonify({"error": f"Payment intent creation failed: {str(e)}"}), 500
+@app.route("/payments/<int:payment_id>", methods=["GET"])
+def get_payment(payment_id):
+    """Get payment details from Payment Service"""
+    try:
+        response = requests.get(
+            f"{PAYMENT_SERVICE_URL}/{payment_id}",
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            return jsonify(response.json()), 200
+        elif response.status_code == 404:
+            return jsonify({"error": "Payment not found"}), 404
+        else:
+            return jsonify({"error": f"Payment service error: {response.status_code}"}), 502
+
+    except Exception as e:
+        app.logger.error(f"Error fetching payment: {e}")
+        return jsonify({"error": "Failed to fetch payment details"}), 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8101, debug=True)

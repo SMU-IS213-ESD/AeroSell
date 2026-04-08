@@ -172,6 +172,7 @@ services:
       DATABASE_URL: postgresql://user:password@db:5432/payment_db
       STRIPE_API_KEY: ${STRIPE_API_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      ORDER_SERVICE_URL: http://order:8006
     depends_on:
       db:
         condition: service_healthy

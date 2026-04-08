@@ -83,62 +83,67 @@ const pay = async () => {
       throw new Error(stripeError.message || "Card payment failed");
     }
 
-    if (paymentIntent.status !== "succeeded") {
-      throw new Error(
-        `Payment status: ${paymentIntent.status}. Payment must succeed to proceed.`,
-      );
+    if (!paymentIntent) {
+      throw new Error("Payment confirmation failed. No payment intent returned.");
     }
 
-    // Payment succeeded! Now create the order
-    const confirmationData = {
-      user_id: validationData.value.user_id,
-      drone_id: validationData.value.drone_id,
-      pickup_location: validationData.value.pickup_location,
-      dropoff_location: validationData.value.dropoff_location,
-      timeslot: validationData.value.timeslot,
-      delivery_cost: validationData.value.delivery_cost,
-      payment_method: "stripe",
-      payment_details: {
-        payment_intent_id: paymentIntent.id,
-        payment_method_id: paymentIntent.payment_method,
-        amount: paymentIntent.amount / 100, // Convert from cents
-        currency: paymentIntent.currency,
-      },
-      route_validation: validationData.value.route_validation,
+    // Payment initiated! Now poll for order creation
+    paymentMessage.value = "Processing payment...";
+
+    // Get payment_id from state or extract from paymentIntent
+    const paymentId = state.payment?.payment_id;
+    if (!paymentId) {
+      throw new Error("Payment ID not found. Cannot verify payment status.");
+    }
+
+    // Poll payment endpoint to wait for order creation
+    const maxRetries = 30; // 30 seconds max
+    const retryDelay = 1000; // 1 second
+    let orderDetails = null;
+
+    for (let i = 0; i < maxRetries; i++) {
+      const paymentResponse = await bookDroneAPI.getPayment(paymentId);
+
+      if (!paymentResponse.ok) {
+        console.warn(`Failed to fetch payment status: ${paymentResponse.status}`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        continue;
+      }
+
+      const paymentData = await paymentResponse.json();
+
+      // Check if order has been created (order_id will be populated after webhook processing)
+      if (paymentData.order_id && paymentData.pickup_pin) {
+        orderDetails = paymentData;
+        break;
+      }
+
+      // Wait before next retry
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+
+    if (!orderDetails) {
+      throw new Error("Order creation timeout. Payment succeeded but order was not created.");
+    }
+
+    console.log("Payment and order creation successful:", orderDetails);
+
+    // Save confirmation details
+    state.payment = {
+      complete: true,
+      provider: "stripe",
+      orderId: orderDetails.order_id,
+      reference: orderDetails.transaction_id,
+      paidAt: new Date().toISOString(),
+      bookingId: orderDetails.id,
+      confirmationData: orderDetails,
     };
 
-    const response = await bookDroneAPI.confirmBooking(confirmationData);
+    // Update payment in store
+    completeStripePayment(orderDetails.id, orderDetails.pickup_pin);
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(
-        errorData.error || `Order creation failed: ${response.statusText}`,
-      );
-    }
-
-    const result = await response.json();
-    console.log("Payment and booking confirmation successful:", result);
-
-    if (result.success) {
-      // Save confirmation details
-      state.payment = {
-        complete: true,
-        provider: "stripe",
-        orderId: result.order_id || "",
-        reference: result.payment_id || "",
-        paidAt: new Date().toISOString(),
-        bookingId: result.booking_id,
-        confirmationData: result,
-      };
-
-      // Update payment in store
-      completeStripePayment(result.payment_id, result.pickup_pin);
-
-      // Navigate to confirmation page
-      router.push("/confirmation");
-    } else {
-      throw new Error(result.error || "Order creation failed");
-    }
+    // Navigate to confirmation page
+    router.push("/confirmation");
   } catch (error) {
     console.error("Payment error:", error);
     paymentMessage.value =
@@ -163,13 +168,29 @@ onMounted(async () => {
 
   // Create payment intent to get client_secret
   try {
+    // Prepare order data for webhook processing
+    const orderData = {
+      user_id: validationData.value.user_id,
+      drone_id: validationData.value.drone_id,
+      pickup_location: validationData.value.pickup_location,
+      dropoff_location: validationData.value.dropoff_location,
+      item_description: validationData.value.timeslot || `${state.booking.pickupDate} at ${state.booking.pickupTime}`,
+      pickup_pin: validationData.value.pickup_pin
+    };
+
     const response = await bookDroneAPI.createPaymentIntent(
       deliveryCost.value,
       "SGD",
+      orderData
     );
+
     if (response.ok) {
       const result = await response.json();
       clientSecret.value = result.client_secret;
+      state.payment = {
+        payment_id: result.payment_id,
+        client_secret: result.client_secret
+      };
       console.log("PaymentIntent created, client_secret received");
     } else {
       paymentMessage.value = "Failed to initialize payment system";
