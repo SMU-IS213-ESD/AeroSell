@@ -146,19 +146,29 @@ def telemetry_callback(ch, method, properties, body):
 		data = json.loads(body)
 		print("[Telemetry] Received:", data, flush=True)
 		drone_id = data.get("drone_id")
-		
+		timestamp = data.get("timestamp")
+		error = data.get("error")
+		current_longitude = data.get("current_longitude")
+		current_latitude = data.get("current_latitude")
 		# Update telemetry table
 		with app.app_context():
 			drone = Drone.query.get(drone_id)
 			
 			# Insert telemetry record
-			telemetry = Telemetry(drone_id=drone_id)
+			telemetry = Telemetry(
+				drone_id=drone_id,
+				timestamp=timestamp,
+				error=error,
+				current_longitude=current_longitude,
+				current_latitude=current_latitude
+			)
 			db.session.add(telemetry)
 			db.session.commit()
 	except Exception as e:
 		app.logger.exception("Failed to process telemetry message")
 
-#TODO: this is a function meant for telemetry_callback to call, when it receives telemetry that has error = True, it will publish a message to
+#TODO: this is a function meant for telemetry_callback to call, when it receives telemetry that has error = True, and after saving it in the database, it will publish a message 
+#to a drone anomaly exchange
 
 
 def flight_update_callback(ch, method, properties, body):
