@@ -9,11 +9,11 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Service URLs (using Docker network names)
-USER_SERVICE_URL = "http://user:8008"
-ORDER_SERVICE_URL = "http://order:8006"
-DRONE_SERVICE_URL = "http://drone:8002"
-FLIGHT_PLANNING_URL = "http://flight-planning:8004"
-PAYMENT_SERVICE_URL = "http://payment:8007"
+USER_SERVICE_URL = "http://kong:8000/user"
+ORDER_SERVICE_URL = "http://kong:8000/order"
+DRONE_SERVICE_URL = "http://kong:8000/drone"
+FLIGHT_PLANNING_URL = "http://kong:8000/flight"
+PAYMENT_SERVICE_URL = "http://kong:8000/payment"
 
 # RabbitMQ configuration for notifications
 RABBITMQ_URL = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@rmqbroker.dodieboy.qzz.io:5672/")
