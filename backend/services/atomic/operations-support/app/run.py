@@ -17,6 +17,7 @@ db = SQLAlchemy(app)
 class SupportStaffOut(Schema):
 	id = Integer()
 	name = String()
+	email = String()
 	is_available = Boolean()
 
 class AssignmentOut(Schema):
@@ -35,6 +36,7 @@ class SupportStaff(db.Model):
 	__tablename__ = 'support_staff'
 	id = db.Column(db.Integer, primary_key=True)
 	name = db.Column(db.String(100), nullable=False)
+	email = db.Column(db.String(100), nullable=False, unique=True)
 	is_available = db.Column(db.Boolean, default=True, nullable=False)
 
 
@@ -42,6 +44,7 @@ class SupportStaff(db.Model):
 		return {
 			'id': self.id,
 			'name': self.name,
+			'email': self.email,
 			'is_available': self.is_available
 		}
 
@@ -130,9 +133,11 @@ def create_assignment():
 	data = request.get_json(silent=True)
 	required_fields = ["staff_id", "drone_id", "longitude", "latitude"]
 	if not data or not all(field in data for field in required_fields):
+		print(f"[Operations-Support] POST /operations-support/assignment - Missing required fields", flush=True)
 		abort(400, "Missing required fields")
 	staff = SupportStaff.query.get(data["staff_id"])
 	if not staff:
+		print(f"[Operations-Support] POST /operations-support/assignment - Staff {data['staff_id']} NOT found", flush=True)
 		abort(404, "Staff not found")
 	assignment = Assignment(
 		staff_id=data["staff_id"],
@@ -143,6 +148,7 @@ def create_assignment():
 	)
 	db.session.add(assignment)
 	db.session.commit()
+	print(f"[Operations-Support] POST /operations-support/assignment - Created assignment {assignment.id}: Staff {data['staff_id']} → Drone {data['drone_id']}", flush=True)
 	return assignment
 
 
@@ -204,9 +210,9 @@ def delete_assignment(assignment_id):
 @app.doc(tags=["SupportStaff"])
 def create_staff():
 	data = request.get_json(silent=True)
-	if not data or "name" not in data:
-		abort(400, "Missing required field: name")
-	staff = SupportStaff(name=data["name"], is_available=data.get("is_available", True))
+	if not data or "name" not in data or "email" not in data:
+		abort(400, "Missing required fields: name, email")
+	staff = SupportStaff(name=data["name"], email=data["email"], is_available=data.get("is_available", True))
 	db.session.add(staff)
 	db.session.commit()
 	return staff
@@ -219,6 +225,18 @@ def create_staff():
 def get_staff():
 	staff_list = SupportStaff.query.all()
 	return staff_list
+
+
+@app.get("/operations-support/staff/available")
+@app.output(List[SupportStaffOut])
+@app.doc(tags=["SupportStaff"])
+def get_available_staff():
+	"""Get only available support staff members"""
+	available_staff = SupportStaff.query.filter_by(is_available=True).all()
+	print(f"[Operations-Support] GET /operations-support/staff/available - Found {len(available_staff)} available staff", flush=True)
+	for staff in available_staff:
+		print(f"[Operations-Support]   - Staff {staff.id}: {staff.name} ({staff.email})", flush=True)
+	return available_staff
 
 
 # Get a single staff member by ID
@@ -239,7 +257,7 @@ def update_staff(staff_id):
 	if not staff:
 		return jsonify({"error": "Staff not found"}), 404
 	data = request.get_json(silent=True)
-	for field in ["name", "is_available"]:
+	for field in ["name", "email", "is_available"]:
 		if field in data:
 			setattr(staff, field, data[field])
 	db.session.commit()
@@ -254,12 +272,6 @@ def delete_staff(staff_id):
 	db.session.delete(staff)
 	db.session.commit()
 	return jsonify({"message": "Staff deleted"}), 200
-
-# Get only available staff
-@app.route("/operations-support/staff/available", methods=["GET"])
-def get_available_staff():
-	staff_list = SupportStaff.query.filter_by(is_available=True).all()
-	return jsonify([s.json() for s in staff_list]), 200
 
 @app.route("/db-check", methods=["GET"])
 def db_check():
@@ -286,9 +298,9 @@ if __name__ == "__main__":
 		# Insert initial support staff if table is empty
 		if SupportStaff.query.count() == 0:
 			staff_list = [
-				SupportStaff(name="Alice"),
-				SupportStaff(name="Bob"),
-				SupportStaff(name="Charlie"),
+				SupportStaff(name="Alice", email="alice@operations-support.com"),
+				SupportStaff(name="Bob", email="bob@operations-support.com"),
+				SupportStaff(name="Charlie", email="charlie@operations-support.com"),
 			]
 			db.session.add_all(staff_list)
 			db.session.commit()

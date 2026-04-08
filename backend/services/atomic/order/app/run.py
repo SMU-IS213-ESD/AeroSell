@@ -56,7 +56,9 @@ with app.app_context():
 # --------------------------
 # RabbitMQ Config
 # --------------------------
-rabbitmq_url = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+rabbitmq_url = os.environ.get("RABBITMQ_URL")
+if not rabbitmq_url:
+    raise RuntimeError("RABBITMQ_URL environment variable is not set")
 EXCHANGE_NAME = "drone_events"
 
 def publish_status_event(order_id, status):
@@ -186,16 +188,49 @@ def get_order(order_id):
         "modified": order.modified
     })
 
-@app.route("/orders/<int:order_id>/status", methods=["PUT"])
+@app.route("/orders/drone/<int:drone_id>", methods=["GET"])
+def get_orders_by_drone(drone_id):
+    """Get orders for a specific drone, optionally filtered by status"""
+    status = request.args.get('status')
+    print(f"[Order Service] GET /orders/drone/{drone_id} - Status filter: {status}", flush=True)
+    
+    query = db.select(Order).filter_by(drone_id=drone_id)
+    if status:
+        query = query.filter_by(status=status)
+    
+    orders = db.session.scalars(query).all()
+    print(f"[Order Service] Found {len(orders)} orders for drone {drone_id}", flush=True)
+    
+    if not orders:
+        print(f"[Order Service] No orders found for drone {drone_id}", flush=True)
+        return jsonify({
+            "code": 404,
+            "message": f"No orders found for drone {drone_id}"
+        }), 404
+    
+    for order in orders:
+        print(f"[Order Service]   - Order {order.order_id}: user={order.user_id}, status={order.status}", flush=True)
+    
+    return jsonify({
+        "code": 200,
+        "data": {
+            "orders": [order.json() for order in orders]
+        }
+    })
+
+@app.route("/orders/<int:order_id>/status", methods=["PUT", "PATCH"])
 def update_status(order_id):
     order = Order.query.get(order_id)
     if not order:
+        print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
         return jsonify({"error": "Order not found"}), 404
     data = request.json
+    old_status = order.status
     order.status = data["status"]
     if "drone_id" in data:
         order.drone_id = data["drone_id"]
     db.session.commit()
+    print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
     # Publish event
     publish_status_event(order.id, order.status)
     return jsonify({"message": "Order updated"})

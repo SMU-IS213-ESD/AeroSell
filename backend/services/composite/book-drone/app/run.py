@@ -16,7 +16,9 @@ FLIGHT_PLANNING_URL = "http://kong:8000/flight"
 PAYMENT_SERVICE_URL = "http://kong:8000/payment"
 
 # RabbitMQ configuration for notifications
-RABBITMQ_URL = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@rmqbroker.dodieboy.qzz.io:5672/")
+RABBITMQ_URL = os.environ.get("RABBITMQ_URL")
+if not RABBITMQ_URL:
+    raise RuntimeError("RABBITMQ_URL environment variable is not set")
 
 def get_user_info(user_id):
     """Validate and get user information from User Service"""

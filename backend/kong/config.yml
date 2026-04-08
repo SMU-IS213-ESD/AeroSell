@@ -16,13 +16,6 @@ services:
         paths:
           - /drone
 
-  - name: error-service
-    url: http://error:8003
-    routes:
-      - name: error-route
-        paths:
-          - /error
-
   - name: flight-service
     url: http://flight-planning:8004
     routes:

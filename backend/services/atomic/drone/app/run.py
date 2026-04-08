@@ -23,6 +23,7 @@ from flask import jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from datetime import datetime
 import os
 import time
 import threading
@@ -55,6 +56,8 @@ def open_rabbitmq_connection():
 	try:
 		rabbitmq_connection = pika.BlockingConnection(params)
 		rabbitmq_channel = rabbitmq_connection.channel()
+		print(f"[Drone Service] Persistent connection opened for PUBLISHING ONLY", flush=True)
+		print(f"[Drone Service] Connection: {rabbitmq_connection}, Channel: {rabbitmq_channel}", flush=True)
 	except Exception as e:
 		app.logger.exception("Failed to connect to RabbitMQ")
 		print("Failed to connect to RabbitMQ!")
@@ -78,16 +81,13 @@ def close_rabbitmq_connection(e=None):
 		rabbitmq_connection = None
 
 def publish_message(exchange, routing_key, body, properties=None):
-	"""Publish a message to RabbitMQ using persistent connection."""
-	global rabbitmq_channel
-	if rabbitmq_channel is None:
-		raise RuntimeError("RabbitMQ channel is not initialized.")
-	rabbitmq_channel.basic_publish(
-		exchange=exchange,
-		routing_key=routing_key,
-		body=body,
-		properties=properties
-	)
+	"""DEPRECATED: Do NOT use this function.
+	
+	Reason: Global persistent channel causes thread-safety issues.
+	Instead, always create a fresh connection per publish operation.
+	See handle_drone_anomaly() for the correct pattern.
+	"""
+	raise NotImplementedError("Use fresh connection pattern instead - see handle_drone_anomaly()")
 
 # sqlalchemy model
 
@@ -116,14 +116,19 @@ class Telemetry(db.Model):
 	id = db.Column(db.Integer, primary_key=True)
 	drone_id = db.Column(db.Integer, db.ForeignKey('drones.id', ondelete="CASCADE"), nullable=False)
 	timestamp = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
-	progress = db.Column(db.Integer, nullable=False) 
+	error = db.Column(db.Boolean, nullable=True)
+	current_longitude = db.Column(db.Float, nullable=True)
+	current_latitude = db.Column(db.Float, nullable=True)
 
 	def json(self):
 		return {
 			'id': self.id,
 			'drone_id': self.drone_id,
 			'timestamp': self.timestamp.isoformat() if self.timestamp else None,
-			'progress': self.progress,
+			'error': self.error,
+			'current_longitude': self.current_longitude,
+			'current_latitude': self.current_latitude
+
 		}
 
 # --- APIFlask Schema for Drone ---
@@ -141,21 +146,109 @@ def telemetry_callback(ch, method, properties, body):
 		data = json.loads(body)
 		print("[Telemetry] Received:", data, flush=True)
 		drone_id = data.get("drone_id")
-		progress = data.get("progress")
+		timestamp_str = data.get("timestamp")
+		error = data.get("error")
+		current_longitude = data.get("current_longitude")
+		current_latitude = data.get("current_latitude")
+		
+		# Parse timestamp string to datetime object
+		try:
+			timestamp = datetime.fromisoformat(timestamp_str) if timestamp_str else None
+		except (ValueError, TypeError) as e:
+			print(f"[Telemetry] Invalid timestamp format: {timestamp_str}, {e}", flush=True)
+			timestamp = None
+		
 		# Update telemetry table
 		with app.app_context():
 			drone = Drone.query.get(drone_id)
-			if drone:
-				# Optionally update drone status based on progress
-				if progress == 100:
-					drone.status = "landed"
-				db.session.commit()
+			
 			# Insert telemetry record
-			telemetry = Telemetry(drone_id=drone_id, progress=progress)
+			telemetry = Telemetry(
+				drone_id=drone_id,
+				timestamp=timestamp,
+				error=error,
+				current_longitude=current_longitude,
+				current_latitude=current_latitude
+			)
 			db.session.add(telemetry)
 			db.session.commit()
+			
+			# Check for anomaly and handle if error detected
+			if error:
+				handle_drone_anomaly(drone, timestamp, current_longitude, current_latitude)
 	except Exception as e:
 		app.logger.exception("Failed to process telemetry message")
+		print(f"[Telemetry] Exception: {e}", flush=True)
+
+
+def handle_drone_anomaly(drone, timestamp, current_longitude, current_latitude):
+	"""Handle drone anomaly: update status and publish anomaly message.
+	
+	Uses FRESH connection (not persistent) to avoid thread interference.
+	
+	Args:
+		drone: Drone object (already queried to avoid redundant DB query)
+		timestamp: Timestamp from telemetry
+		current_longitude: Drone longitude
+		current_latitude: Drone latitude
+	"""
+	try:
+		# 1. Update drone status to pending_maintenance
+		if drone:
+			drone.status = "pending_maintenance"
+			db.session.commit()
+			print(f"[Anomaly] Drone {drone.id} status updated to pending_maintenance", flush=True)
+		
+		# 2. Publish drone.anomaly message using FRESH connection (thread-safe)
+		anomaly_msg = {
+			"drone_id": drone.id,
+			"timestamp": timestamp.isoformat() if timestamp else None,
+			"current_longitude": current_longitude,
+			"current_latitude": current_latitude
+		}
+		
+		# Create fresh connection for publishing (thread-safe, no interference)
+		rabbitmq_url = os.environ.get("RABBITMQ_URL")
+		connection = None
+		channel = None
+		try:
+			print(f"[Anomaly] Creating FRESH connection to publish anomaly...", flush=True)
+			params = pika.URLParameters(rabbitmq_url)
+			connection = pika.BlockingConnection(params)
+			channel = connection.channel()
+			print(f"[Anomaly] Connection created, declaring exchange...", flush=True)
+			
+			# Declare exchange
+			channel.exchange_declare(
+				exchange="drone_anomaly",
+				exchange_type="topic",
+				durable=True
+			)
+			
+			# Publish message
+			channel.basic_publish(
+				exchange="drone_anomaly",
+				routing_key="drone.anomaly",
+				body=json.dumps(anomaly_msg),
+				properties=pika.BasicProperties(delivery_mode=2, content_type='application/json')
+			)
+			print(f"[Anomaly] Published drone.anomaly message: {anomaly_msg}", flush=True)
+		finally:
+			# Always cleanup
+			if channel:
+				try:
+					channel.close()
+				except Exception:
+					pass
+			if connection:
+				try:
+					connection.close()
+				except Exception:
+					pass
+	except Exception as e:
+		app.logger.exception(f"Failed to handle drone anomaly for drone {drone.id if drone else 'unknown'}")
+		print(f"[Anomaly] Error handling anomaly: {e}", flush=True)
+
 
 def flight_update_callback(ch, method, properties, body):
 	try:
@@ -185,19 +278,35 @@ def amqp_consumer_thread():
 		connection = None
 		channel = None
 		try:
+			print(f"[Consumer Thread] Creating SEPARATE connection for CONSUMING ONLY (not for publishing)", flush=True)
 			params = pika.URLParameters(rabbitmq_url)
 			connection = pika.BlockingConnection(params)
 			channel = connection.channel()
+			print(f"[Consumer Thread] Consumer Connection established: {connection}", flush=True)
+			print(f"[Consumer Thread] Consumer Channel established: {channel}", flush=True)
+			
 			# Declare queues (idempotent)
 			channel.queue_declare(queue='telemetry', durable=True)
 			channel.queue_declare(queue='flight_update', durable=True)
+			print(f"[Consumer Thread] Declared queues: telemetry, flight_update", flush=True)
+			
+			# Bind queues to exchange
+			channel.queue_bind(exchange='drone', queue='telemetry', routing_key='telemetry')
+			channel.queue_bind(exchange='drone', queue='flight_update', routing_key='flight_update')
+			print(f"[Consumer Thread] Bound queues to 'drone' exchange (NOT 'drone_anomaly')", flush=True)
+			
+			# Set QoS to process one message at a time from each queue
+			channel.basic_qos(prefetch_count=1)
+			
 			# Set up consumers
 			channel.basic_consume(queue='telemetry', on_message_callback=telemetry_callback, auto_ack=True)
 			channel.basic_consume(queue='flight_update', on_message_callback=flight_update_callback, auto_ack=True)
-			print("[AMQP] Started consuming telemetry and flight_update queues...")
+			print("[Consumer Thread] Started consuming from 'drone' exchange (telemetry, flight_update only)...", flush=True)
+			print("[Consumer Thread] NOTE: Publishing (anomalies) uses SEPARATE fresh connection for thread safety", flush=True)
 			channel.start_consuming()
 		except Exception as e:
 			app.logger.exception("AMQP consumer thread crashed, retrying in 5s...")
+			print(f"[Consumer Thread] ERROR: {e}", flush=True)
 			time.sleep(5)
 		finally:
 			if channel:
@@ -437,7 +546,16 @@ if __name__ == "__main__":
 			db.session.commit()
 
 		wait_for_rabbitmq()  # Wait for RabbitMQ to be ready before proceeding
-		open_rabbitmq_connection()
+		
+		print("\n[Drone Service] ===============================================", flush=True)
+		print("[Drone Service] AMQP TWO-CONNECTION ARCHITECTURE:", flush=True)
+		print("[Drone Service] 1. CONSUMER thread: Long-lived connection for telemetry/flight_update", flush=True)
+		print("[Drone Service] 2. ANOMALY publishing: Fresh connection per anomaly (thread-safe)", flush=True)
+		print("[Drone Service] ===============================================\n", flush=True)
+		
+		# Note: We no longer use persistent connection for publishing
+		# open_rabbitmq_connection()  # DEPRECATED - see handle_drone_anomaly() for correct pattern
+		
 		# Start AMQP consumer thread
 		consumer_thread = threading.Thread(target=amqp_consumer_thread, daemon=True)
 		consumer_thread.start()
@@ -449,16 +567,5 @@ if __name__ == "__main__":
 
 
 
-# Example usage of publish_message, to use later to activate drone:
-#
-# from pika import BasicProperties
-# publish_message(
-#     exchange='',  # default exchange
-#     routing_key='drone_status',  # queue name
-#     body='{"drone_id": 1, "status": "in-flight"}',
-#     properties=BasicProperties(content_type='application/json')
-# )
 
-
-# This will publish a JSON message to the 'drone_status' queue.
 
