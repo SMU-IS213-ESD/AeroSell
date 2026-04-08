@@ -374,7 +374,7 @@ select:focus {
 
 .pin-box {
   margin: 16px auto;
-  max-width: 250px;
+  max-width: 300px;
   letter-spacing: 0.35em;
   font-size: 2rem;
   font-family: 'Space Grotesk', sans-serif;
