@@ -24,7 +24,7 @@ const logout = () => {
       </RouterLink>
       <nav class="nav">
         <RouterLink to="/">Home</RouterLink>
-        <RouterLink v-if="state.user" to="/book">Book</RouterLink>
+        <RouterLink v-if="state.user" to="/status">Status</RouterLink>
         <RouterLink v-if="!state.user" to="/login">Login</RouterLink>
         <button v-if="state.user" type="button" class="nav-logout" @click="logout">Logout</button>
       </nav>

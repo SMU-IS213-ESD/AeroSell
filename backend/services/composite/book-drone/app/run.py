@@ -35,35 +35,52 @@ def get_available_drones(timeslot):
     """Get drones that are not booked and not under maintenance"""
     try:
         # Get all drones
-        response = requests.get(f"{DRONE_SERVICE_URL}/drones", timeout=5)
+        response = requests.get(f"{DRONE_SERVICE_URL}/drones", timeout=10)
         if response.status_code != 200:
+            app.logger.error(f"Failed to get drones from drone service: {response.status_code}")
+            response = requests.get(f"{DRONE_SERVICE_URL}/drones", timeout=10)
+            if response.status_code == 200:
+                all_drones = response.json()
+                return [drone for drone in all_drones
+                        if drone.get('status', '').lower() not in ['broken', 'maintenance']]
             return []
 
         all_drones = response.json()
 
-        # Get all orders for the timeslot
-        orders_response = requests.get(
-            f"{ORDER_SERVICE_URL}/orders/by-timeslot?timeslot={timeslot}",
-            timeout=5
-        )
+        # Get all orders for the timeslot - increased timeout
+        try:
+            orders_response = requests.get(
+                f"{ORDER_SERVICE_URL}/orders/by-timeslot?timeslot={timeslot}",
+                timeout=15  # Increased timeout for slower order service
+            )
 
-        booked_drone_ids = []
-        if orders_response.status_code == 200:
-            orders = orders_response.json()
-            booked_drone_ids = [order['drone_id'] for order in orders]
+            booked_drone_ids = []
+            if orders_response.status_code == 200:
+                orders = orders_response.json()
+                booked_drone_ids = [order.get('drone_id') for order in orders if order.get('drone_id')]
+        except Exception as e:
+            app.logger.warning(f"Timeout/error checking orders: {e}. Proceeding with all drones.")
+            booked_drone_ids = []  # Assume no bookings if service times out
 
         # Filter available drones
         available_drones = []
         for drone in all_drones:
             drone_status = drone.get('status', '').lower()
             if (drone['id'] not in booked_drone_ids and
-                drone_status != 'broken' and
-                drone_status != 'maintenance'):
+                drone_status not in ['broken', 'maintenance']):
                 available_drones.append(drone)
 
+        app.logger.info(f"Found {len(available_drones)} available drones out of {len(all_drones)} total drones")
         return available_drones
     except Exception as e:
         app.logger.error(f"Error getting available drones: {e}")
+        try:
+            response = requests.get(f"{DRONE_SERVICE_URL}/drones", timeout=10)
+            if response.status_code == 200:
+                all_drones = response.json()
+                return [d for d in all_drones if d.get('status', '').lower() not in ['broken', 'maintenance']]
+        except:
+            pass
         return []
 
 def calculate_delivery_cost(distance_km, weight_kg=1, size='medium', fragile=False, priority=False):

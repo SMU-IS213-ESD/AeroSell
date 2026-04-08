@@ -62,7 +62,7 @@ const formatStatus = (value) => String(value || "").replace("_", " ");
             <span>{{ item.complete ? "Done" : "Pending" }}</span>
           </li>
         </ul>
-        <button
+        <!-- <button
           class="btn btn-primary"
           :disabled="delivery.status === 'delivered'"
           @click="advanceStatus(delivery.trackingCode)"
@@ -70,7 +70,7 @@ const formatStatus = (value) => String(value || "").replace("_", " ");
           {{
             delivery.status === "delivered" ? "Delivered" : "Simulate Next Step"
           }}
-        </button>
+        </button> -->
       </article>
     </div>
 

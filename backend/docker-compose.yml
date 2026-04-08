@@ -226,6 +226,7 @@ services:
       - "8101:8101"
     environment:
       - TZ=Asia/Singapore
+      - RABBITMQ_URL=${RABBITMQ_URL}
 
 
 #third-party services

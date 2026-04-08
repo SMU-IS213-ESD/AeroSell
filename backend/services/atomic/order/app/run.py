@@ -188,6 +188,26 @@ def get_order(order_id):
         "modified": order.modified
     })
 
+@app.route("/orders/user/<string:user_id>", methods=["GET"])
+def get_orders_by_user(user_id):
+    """Get all orders for a specific user"""
+    orders = db.session.scalars(
+        db.select(Order).filter_by(user_id=user_id)
+    ).all()
+
+    if not orders:
+        return jsonify({
+            "code": 404,
+            "message": "No orders found for this user"
+        }), 404
+
+    return jsonify({
+        "code": 200,
+        "data": {
+            "orders": [order.json() for order in orders]
+        }
+    }), 200
+
 @app.route("/orders/drone/<int:drone_id>", methods=["GET"])
 def get_orders_by_drone(drone_id):
     """Get orders for a specific drone, optionally filtered by status"""

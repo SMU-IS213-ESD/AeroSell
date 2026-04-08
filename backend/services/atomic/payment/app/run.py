@@ -120,7 +120,8 @@ def create_payment():
             db.session.add(payment)
             db.session.flush()
 
-            idempotency_key = f"payment-{payment.id}"
+            import time
+            idempotency_key = f"payment-{payment.id}-{int(time.time())}"
             try:
                 pi = stripe.PaymentIntent.create(
                     amount=int(amt * 100),
