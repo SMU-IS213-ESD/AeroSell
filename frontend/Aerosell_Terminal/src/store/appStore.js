@@ -144,10 +144,10 @@ const calculateQuote = (booking) => {
 
 const randomEightDigitPin = () => Math.floor(10000000 + Math.random() * 90000000).toString()
 
-const randomTrackingCode = () => {
-  const stamp = Date.now().toString().slice(-6)
-  const rand = Math.floor(Math.random() * 900 + 100)
-  return `AS-${stamp}-${rand}`
+const formatTrackingCode = (bookingId) => {
+  // Format booking ID as AS-0001, AS-0002, etc.
+  const paddedId = String(bookingId).padStart(4, '0')
+  return `AS-${paddedId}`
 }
 
 const cloneMilestones = (milestones) => milestones.map((item) => ({ ...item }))
@@ -196,7 +196,7 @@ export const useAppStore = () => {
 
     const deliveryRecord = {
       ownerEmail: state.user?.email || state.booking.recipientEmail || '',
-      trackingCode: randomTrackingCode(),
+      trackingCode: formatTrackingCode(paymentReference || '1'),
       pickupPin: backendPickupPin || randomEightDigitPin(),
       status: 'scheduled',
       milestones,
