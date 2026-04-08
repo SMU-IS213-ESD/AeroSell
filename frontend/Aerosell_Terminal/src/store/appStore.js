@@ -90,18 +90,18 @@ const statusTemplate = [
     details: 'Delivery slot reserved and pickup locker prepared.',
   },
   {
-    key: 'picked_up',
-    label: 'Picked Up',
-    details: 'Package collected from source locker.',
-  },
-  {
-    key: 'in_flight',
-    label: 'In Flight',
-    details: 'Drone is en route to destination hub.',
+    key: 'delivering',
+    label: 'Delivering',
+    details: 'Package are on the way to destination.',
   },
   {
     key: 'delivered',
     label: 'Delivered',
+    details: 'Package has been delivered, please collect it from the pickup locker.',
+  },
+  {
+    key: 'completed',
+    label: 'Completed',
     details: 'Recipient confirmed package retrieval.',
   },
 ]

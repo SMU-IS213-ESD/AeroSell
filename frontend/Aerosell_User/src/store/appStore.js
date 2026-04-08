@@ -149,8 +149,6 @@ const calculateQuote = (booking) => {
   }
 }
 
-const randomEightDigitPin = () => Math.floor(10000000 + Math.random() * 90000000).toString()
-
 const formatTrackingCode = (bookingId) => {
   // Format booking ID as AS-0001, AS-0002, etc.
   const paddedId = String(bookingId).padStart(4, '0')
@@ -204,7 +202,7 @@ export const useAppStore = () => {
     const deliveryRecord = {
       ownerEmail: state.user?.email || state.booking.recipientEmail || '',
       trackingCode: formatTrackingCode(paymentReference || '1'),
-      pickupPin: backendPickupPin || randomEightDigitPin(),
+      pickupPin: backendPickupPin,
       status: 'scheduled',
       milestones,
     }
@@ -230,48 +228,58 @@ export const useAppStore = () => {
   const fetchUserOrders = async (userId) => {
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_ORDER_API_URL || 'http://localhost:8880'}/order/orders/user/${userId}`,
+        `${import.meta.env.VITE_BOOK_DRONE_API_URL || 'http://localhost:8880'}/book-drone/status`,
         {
-          headers: { 'Content-Type': 'application/json' }
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId })
         }
       )
 
       if (!res.ok) {
-        if (res.status === 404) {
-          state.orders = []
-          return
-        }
         const errorData = await res.json()
         throw new Error(`Failed to fetch orders: ${errorData.message || res.status}`)
       }
 
       const result = await res.json()
-      if (result.code === 200 && result.data?.orders) {
+      console.log('Fetched orders:', result)
+      if (result.success && result.data.orders) {
         state.orders = result.data.orders.map((order) => ({
           trackingCode: `AS-${String(order.order_id).padStart(4, '0')}`,
           userId: order.user_id,
-          pickupPin: order.pickup_pin || randomEightDigitPin(),
+          pickupPin: order.pickup_pin,
           fromLocation: order.pickup_location || 'Unknown',
           toLocation: order.dropoff_location || 'Unknown',
           status: order.status.toLowerCase(),
           createdAt: order.created,
-          milestones: statusTemplate.map((item, index) => {
-            const targetStatusIndex = statusTargets[order.status?.toLowerCase()]
-            const isCompleted = index <= (targetStatusIndex === undefined ? -1 : targetStatusIndex - 1)
-            if (item.key === order.status?.toLowerCase()) {
-              return {
-                ...item,
-                complete: true,
-                reachedAt: order.created,
-                details: item.details + ` (${order.status})`
-              }
-            }
-            return {
-              ...item,
-              complete: isCompleted,
-              reachedAt: isCompleted ? order.created : '',
-            }
-          })
+          milestones: (Array.isArray(order.milestones) && order.milestones.length)
+            ? order.milestones.map((m) => {
+                const template = statusTemplate.find((t) => t.key === m.key) || {}
+                return {
+                  key: m.key,
+                  label: m.label || template.label || '',
+                  details: m.details || template.details || '',
+                  complete: !!m.complete,
+                  reachedAt: m.reachedAt || '',
+                }
+              })
+            : statusTemplate.map((item, index) => {
+                const targetStatusIndex = statusTargets[order.status?.toLowerCase()]
+                const isCompleted = index <= (targetStatusIndex === undefined ? -1 : targetStatusIndex - 1)
+                if (item.key === order.status?.toLowerCase()) {
+                  return {
+                    ...item,
+                    complete: true,
+                    reachedAt: order.created,
+                    details: item.details + ` (${order.status})`,
+                  }
+                }
+                return {
+                  ...item,
+                  complete: isCompleted,
+                  reachedAt: isCompleted ? order.created : '',
+                }
+              })
         }))
       }
     } catch (error) {

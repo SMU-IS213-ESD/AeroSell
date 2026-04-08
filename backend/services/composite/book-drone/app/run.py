@@ -552,24 +552,59 @@ def get_user_status():
         # Transform to match StatusPage.vue format
         status_orders = []
         for order in user_orders:
+            status_lower = (order.get('status') or '').lower()
+            created_at = order.get('created', '')
+
+            # Build milestones and mark complete based on backend status.
+            milestones_template = [
+                {'key': 'scheduled', 'label': 'Scheduled', 'details': 'Delivery slot reserved'},
+                {'key': 'delivering', 'label': 'Delivering', 'details': 'Package are on the way to destination'},
+                {'key': 'delivered', 'label': 'Delivered', 'details': 'Package has been delivered'},
+                {'key': 'completed', 'label': 'Completed', 'details': 'Delivery completed'},
+            ]
+
+            milestones = []
+            for m in milestones_template:
+                key = m['key']
+                is_complete = False
+
+                # Always mark scheduled as complete (order exists)
+                if key == 'scheduled':
+                    is_complete = True
+                # If backend reports "delivering", mark delivering milestone complete
+                elif status_lower == 'delivering' and key == 'delivering':
+                    is_complete = True
+                elif status_lower == 'delivered' and key == 'delivered':
+                    is_complete = True
+                elif status_lower in ('completed', 'finished') and key == 'completed':
+                    is_complete = True
+
+                milestones.append({
+                    'key': key,
+                    'label': m.get('label', ''),
+                    'details': m.get('details', ''),
+                    'complete': is_complete,
+                    'reachedAt': created_at if is_complete else ''
+                })
+
             status_order = {
-                'trackingCode': f"AS-{order.get('order_id', '000000')}",
-                'ownerEmail': '',  # Would need to fetch from user service
-                'fromLocation': order.get('pickup_location'),
-                'toLocation': order.get('dropoff_location'),
-                'status': order.get('status', 'unknown').lower(),
-                'milestones': [
-                    {'key': 'scheduled', 'label': 'Scheduled', 'details': 'Delivery slot reserved', 'complete': True, 'reachedAt': order.get('created', '')},
-                    {'key': 'picked_up', 'label': 'Picked Up', 'details': 'Package collected', 'complete': False, 'reachedAt': ''},
-                    {'key': 'in_flight', 'label': 'In Flight', 'details': 'Drone en route', 'complete': False, 'reachedAt': ''},
-                    {'key': 'delivered', 'label': 'Delivered', 'details': 'Package delivered', 'complete': False, 'reachedAt': ''}
-                ]
+                'order_id': order.get('order_id'),
+                'user_id': order.get('user_id'),
+                'pickup_location': order.get('pickup_location'),
+                'dropoff_location': order.get('dropoff_location'),
+                'status': status_lower,
+                'created': order.get('created'),
+                'pickup_pin': order.get('pickup_pin'),
+                'milestones': milestones
             }
             status_orders.append(status_order)
 
         return jsonify({
             'success': True,
-            'orders': status_orders
+            "code": 200,
+            "data": {
+                'orders': status_orders
+            }
         }), 200
 
     except Exception as e:
