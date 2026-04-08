@@ -156,6 +156,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/order_db
       - RABBITMQ_URL=${RABBITMQ_URL}
+      - TZ=Asia/Singapore
     depends_on:
       db:
         condition: service_healthy
@@ -173,6 +174,7 @@ services:
       STRIPE_API_KEY: ${STRIPE_API_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       ORDER_SERVICE_URL: http://order:8006
+      TZ: Asia/Singapore
     depends_on:
       db:
         condition: service_healthy
@@ -223,6 +225,8 @@ services:
       - kong-net
     ports:
       - "8101:8101"
+    environment:
+      - TZ=Asia/Singapore
 
 
 #third-party services
