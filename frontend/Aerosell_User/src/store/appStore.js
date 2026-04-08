@@ -230,7 +230,7 @@ export const useAppStore = () => {
   const fetchUserOrders = async (userId) => {
     try {
       const res = await fetch(
-        `${import.meta.env.VITE_ORDER_API_URL || 'http://localhost:8006'}/orders/user/${userId}`,
+        `${import.meta.env.VITE_ORDER_API_URL || 'http://localhost:8880'}/order/orders/user/${userId}`,
         {
           headers: { 'Content-Type': 'application/json' }
         }
@@ -249,7 +249,7 @@ export const useAppStore = () => {
       if (result.code === 200 && result.data?.orders) {
         state.orders = result.data.orders.map((order) => ({
           trackingCode: `AS-${String(order.order_id).padStart(4, '0')}`,
-          ownerEmail: order.user_id,
+          userId: order.user_id,
           pickupPin: order.pickup_pin || randomEightDigitPin(),
           fromLocation: order.pickup_location || 'Unknown',
           toLocation: order.dropoff_location || 'Unknown',

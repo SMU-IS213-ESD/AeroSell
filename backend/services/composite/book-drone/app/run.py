@@ -585,7 +585,6 @@ def confirm_booking():
     try:
         data = request.get_json()
 
-        # Required fields
         required_fields = ['user_id', 'drone_id', 'pickup_location', 'dropoff_location',
                           'timeslot', 'delivery_cost', 'payment_method']
         for field in required_fields:
@@ -635,7 +634,6 @@ def confirm_booking():
 
         app.logger.info(f"Order created successfully. Order ID: {order_id}, Pickup PIN: {pickup_pin}")
 
-        # Generate a booking ID for tracking
         booking_id = str(uuid.uuid4())
 
         booking_details = {

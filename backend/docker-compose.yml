@@ -28,6 +28,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      user:
+        condition: service_healthy
 
   # rabbitmq:
   #   image: rabbitmq:3-management

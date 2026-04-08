@@ -20,7 +20,6 @@ const userDisplayName = computed(() => {
         and verify release with a one-time PIN.
       </p>
       <div class="cta-row">
-        <RouterLink class="btn btn-primary" to="/book">Book Delivery</RouterLink>
         <RouterLink class="btn btn-ghost" to="/status">Track Parcel</RouterLink>
       </div>
       <p v-if="state.user" class="signed-in">Signed in as {{ userDisplayName }}</p>
