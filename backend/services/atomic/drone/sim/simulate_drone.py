@@ -198,6 +198,11 @@ def drone_flight_simulator(drone_id, order_info, duration=10, interval=0.5):
 	except Exception as e:
 		print(f"[Drone {drone_id}] Flight simulation error: {e}", flush=True)
 	
+@app.post('/dronesim/error')
+def simulate_error():
+	global is_error
+	is_error = True
+	return {'message': 'Error simulated.'}, 200
 
 @app.post('/dronesim/reset')
 def reset_simulation():
