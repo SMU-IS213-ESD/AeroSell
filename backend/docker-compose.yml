@@ -28,8 +28,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      user:
-        condition: service_healthy
 
   # rabbitmq:
   #   image: rabbitmq:3-management
@@ -229,6 +227,15 @@ services:
     environment:
       - TZ=Asia/Singapore
       - RABBITMQ_URL=${RABBITMQ_URL}
+
+  insurance-claim:
+    build: ./services/composite/insurance-claim
+    volumes:
+      - ./services/composite/insurance-claim/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8102:8102"
 
 
 #third-party services

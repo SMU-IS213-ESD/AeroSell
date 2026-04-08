@@ -65,6 +65,13 @@ services:
         paths:
           - /book-drone
 
+  - name: insurance-claim-service
+    url: http://insurance-claim:8102
+    routes:
+      - name: insurance-claim-route
+        paths:
+          - /insurance-claim
+
 plugins:
   - name: rate-limiting
     config:

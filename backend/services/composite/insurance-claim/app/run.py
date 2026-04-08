@@ -5,11 +5,11 @@ import os
 app = Flask(__name__)
 
 USER_SVC = os.environ.get("USER_SVC", "http://user:8008")
-ORDER_SVC = os.environ.get("ORDER_SVC", "http://order:8003")
-DOC_SVC = os.environ.get("DOC_SVC", "http://document:8000")
+ORDER_SVC = os.environ.get("ORDER_SVC", "http://order:8006")
+DOC_SVC = os.environ.get("DOC_SVC", "http://document:8001")
 NOTIF_SVC = os.environ.get("NOTIF_SVC", "http://notification:8002")
 
-@app.route("/claims/submit", methods=["POST"])
+@app.route("/submit", methods=["POST"])
 def submit_claim():
     try:
         user_id = request.form.get("user_id")
@@ -61,4 +61,4 @@ def submit_claim():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8100)
+    app.run(host="0.0.0.0", port=8102)
