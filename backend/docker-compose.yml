@@ -158,7 +158,6 @@ services:
       DATABASE_URL: postgresql://user:password@db:5432/payment_db
       STRIPE_API_KEY: ${STRIPE_API_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
-      ORDER_SERVICE_URL: http://order:8006
       TZ: Asia/Singapore
     depends_on:
       db:
@@ -226,6 +225,29 @@ services:
       - "8101:8101"
     environment:
       - TZ=Asia/Singapore
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - STRIPE_API_KEY=${STRIPE_API_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+
+  insurance-claim:
+    build: ./services/composite/insurance-claim
+    volumes:
+      - ./services/composite/insurance-claim/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8102:8102"
+
+  item-delivery:
+    build: ./services/composite/item-delivery
+    volumes:
+      - ./services/composite/item-delivery/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8103:8103"
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
 
 
 #third-party services
@@ -243,7 +265,22 @@ services:
       --device-name $$STRIPE_DEVICE_NAME
       --skip-verify
       --skip-update
-      --forward-to http://kong:8000/payment/webhook
+      --forward-to http://kong:8000/book-drone/webhook
+
+  insurance:
+    build: ./services/third-party/insurance
+    volumes:
+      - ./services/third-party/insurance/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8500:8500"
+    environment:
+      - DOCUMENT_SERVICE_URL=http://kong:8000/document
+    depends_on:
+      kong:
+        condition: service_started
+
 
 networks:
   kong-net:

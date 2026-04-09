@@ -83,7 +83,7 @@ def shutdown(response_or_exc=None):
 class OrderInfoSchema(Schema):
 	pickup_location = String(required=True)
 	dropoff_location = String(required=True)
-	item_description = String(required=True)
+	estimated_pickup_time = String(required=False)
 	user_id = String(required=True)
 
 
@@ -108,7 +108,7 @@ def publish_landing_event(drone_id, order_info):
 			'timestamp': time.strftime('%Y-%m-%dT%H:%M:%S'),
 			'pickup_location': order_info.get('pickup_location'),
 			'dropoff_location': order_info.get('dropoff_location'),
-			'item_description': order_info.get('item_description'),
+			'estimated_pickup_time': order_info.get('estimated_pickup_time'),
 			'user_id': order_info.get('user_id'),
 		}
 		channel.basic_publish(

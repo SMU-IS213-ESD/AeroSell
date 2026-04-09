@@ -28,10 +28,13 @@ class Order(db.Model):
     user_id = db.Column(db.String(255), nullable=False)
     pickup_location = db.Column(db.String(255))
     dropoff_location = db.Column(db.String(255))
-    item_description = db.Column(db.String(255))
+    estimated_pickup_time = db.Column(db.DateTime, nullable=True)
+    estimated_arrival_time = db.Column(db.DateTime, nullable=True)
+    final_arrival_time = db.Column(db.DateTime, nullable=True)
     status = db.Column(db.String(50), default="CREATED")
     drone_id = db.Column(db.Integer, nullable=False)
     pickup_pin = db.Column(db.String(8))  # 8-digit pickup PIN
+    insurance_id = db.Column(db.String(255), nullable=True)  # Insurance ID from insurance service
     created = db.Column(db.DateTime, nullable=False, default=datetime.now)
     modified = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
@@ -41,10 +44,13 @@ class Order(db.Model):
             'user_id': self.user_id,
             'pickup_location': self.pickup_location,
             'dropoff_location': self.dropoff_location,
-            'item_description': self.item_description,
+            'estimated_pickup_time': self.estimated_pickup_time.isoformat() if self.estimated_pickup_time else None,
+            'estimated_arrival_time': self.estimated_arrival_time.isoformat() if self.estimated_arrival_time else None,
+            'final_arrival_time': self.final_arrival_time.isoformat() if self.final_arrival_time else None,
             'status': self.status,
             'drone_id': self.drone_id,
             'pickup_pin': self.pickup_pin,
+            'insurance_id': self.insurance_id,
             'created': self.created,
             'modified': self.modified
         }
@@ -139,15 +145,43 @@ def get_all():
 @app.route("/order", methods=["POST"])
 def create_order():
     data = request.json
+    app.logger.info(f"Received order creation request: {data}")
     import random
     pickup_pin = str(random.randint(10000000, 99999999))
+    # Parse estimated_pickup_time if provided
+    est_pickup = data.get("estimated_pickup_time")
+    est_pickup_dt = None
+    if est_pickup:
+        try:
+            est_pickup_dt = datetime.fromisoformat(est_pickup.replace('Z', '+00:00'))
+        except Exception:
+            est_pickup_dt = None
+    est_arrival = data.get("estimated_arrival_time")
+    est_arrival_dt = None
+    if est_arrival:
+        try:
+            est_arrival_dt = datetime.fromisoformat(est_arrival.replace('Z', '+00:00'))
+        except Exception:
+            est_arrival_dt = None
+    # Parse final_arrival_time if provided
+    final_arrival = data.get("final_arrival_time")
+    final_arrival_dt = None
+    if final_arrival:
+        try:
+            final_arrival_dt = datetime.fromisoformat(final_arrival.replace('Z', '+00:00'))
+        except Exception:
+            final_arrival_dt = None
+
     order = Order(
         user_id=data.get("user_id"),
         pickup_location=data.get("pickup_location"),
         dropoff_location=data.get("dropoff_location"),
-        item_description=data.get("item_description"),
-        drone_id=data.get("drone_id"),
+        estimated_pickup_time=est_pickup_dt,
+        estimated_arrival_time=est_arrival_dt,
+        final_arrival_time=final_arrival_dt,
+        drone_id=data.get("drone_id") or 0,
         pickup_pin=pickup_pin,
+        insurance_id=data.get("insurance_id"),  # New field for insurance ID
         status="CREATED"
     )
 
@@ -181,12 +215,34 @@ def get_order(order_id):
         "user_id": order.user_id,
         "pickup_location": order.pickup_location,
         "dropoff_location": order.dropoff_location,
-        "item_description": order.item_description,
+        "estimated_pickup_time": order.estimated_pickup_time.isoformat() if order.estimated_pickup_time else None,
+        "estimated_arrival_time": order.estimated_arrival_time.isoformat() if order.estimated_arrival_time else None,
+        "final_arrival_time": order.final_arrival_time.isoformat() if order.final_arrival_time else None,
         "status": order.status,
         "drone_id": order.drone_id,
         "created": order.created,
         "modified": order.modified
     })
+
+@app.route("/orders/user/<string:user_id>", methods=["GET"])
+def get_orders_by_user(user_id):
+    """Get all orders for a specific user"""
+    orders = db.session.scalars(
+        db.select(Order).filter_by(user_id=user_id)
+    ).all()
+
+    if not orders:
+        return jsonify({
+            "code": 404,
+            "message": "No orders found for this user"
+        }), 404
+
+    return jsonify({
+        "code": 200,
+        "data": {
+            "orders": [order.json() for order in orders]
+        }
+    }), 200
 
 @app.route("/orders/drone/<int:drone_id>", methods=["GET"])
 def get_orders_by_drone(drone_id):
@@ -252,11 +308,12 @@ def get_orders_by_timeslot():
             timeslot_clean = timeslot_clean.replace('Z', '+00:00')
 
         timeslot_dt = datetime.fromisoformat(timeslot_clean)
-        date_str = timeslot_dt.strftime('%Y-%m-%d')
+        # Build date range for the day of timeslot
+        start_dt = datetime(timeslot_dt.year, timeslot_dt.month, timeslot_dt.day)
+        end_dt = datetime(timeslot_dt.year, timeslot_dt.month, timeslot_dt.day, 23, 59, 59)
 
-        # Filter orders where item_description contains the date
         orderlist = db.session.scalars(
-            db.select(Order).filter(Order.item_description.ilike(f'%{date_str}%'))
+            db.select(Order).filter(Order.estimated_pickup_time >= start_dt).filter(Order.estimated_pickup_time <= end_dt)
         ).all()
 
         # Return array directly to match book-drone expectations

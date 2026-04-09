@@ -38,7 +38,7 @@ const makeDefaultState = () => ({
     status: 'not_started',
     milestones: [],
   },
-  validationData: null,  // Temporary data for validation between booking and payment
+  validationData: null, // Temporary data for validation between booking and payment
 })
 
 const cloneState = (value) => JSON.parse(JSON.stringify(value))
@@ -67,7 +67,7 @@ const loadState = () => {
         ...makeDefaultState().delivery,
         ...(parsed.delivery || {}),
       },
-      validationData: parsed.validationData || null,  // Persist and restore validationData
+      validationData: parsed.validationData || null, // Persist and restore validationData
     }
   } catch {
     return makeDefaultState()
@@ -90,21 +90,28 @@ const statusTemplate = [
     details: 'Delivery slot reserved and pickup locker prepared.',
   },
   {
-    key: 'delivering',
-    label: 'Delivering',
-    details: 'Package are on the way to destination.',
+    key: 'picked_up',
+    label: 'Picked Up',
+    details: 'Package collected from source locker.',
+  },
+  {
+    key: 'in_flight',
+    label: 'In Flight',
+    details: 'Drone is en route to destination hub.',
   },
   {
     key: 'delivered',
     label: 'Delivered',
-    details: 'Package has been delivered, please collect it from the pickup locker.',
-  },
-  {
-    key: 'completed',
-    label: 'Completed',
     details: 'Recipient confirmed package retrieval.',
   },
 ]
+
+const statusTargets = {
+  scheduled: 1,
+  picked_up: 2,
+  in_flight: 3,
+  delivered: 4,
+}
 
 const initPersistence = () => {
   if (watching) return
@@ -141,8 +148,6 @@ const calculateQuote = (booking) => {
     total: Number(total.toFixed(2)),
   }
 }
-
-const randomEightDigitPin = () => Math.floor(10000000 + Math.random() * 90000000).toString()
 
 const formatTrackingCode = (bookingId) => {
   // Format booking ID as AS-0001, AS-0002, etc.
@@ -197,7 +202,7 @@ export const useAppStore = () => {
     const deliveryRecord = {
       ownerEmail: state.user?.email || state.booking.recipientEmail || '',
       trackingCode: formatTrackingCode(paymentReference || '1'),
-      pickupPin: backendPickupPin || randomEightDigitPin(),
+      pickupPin: backendPickupPin,
       status: 'scheduled',
       milestones,
     }
@@ -211,13 +216,76 @@ export const useAppStore = () => {
         toLocation: state.booking.toLocation,
         pickupDate: state.booking.pickupDate,
         pickupTime: state.booking.pickupTime,
-      pickupPin: deliveryRecord.pickupPin,
+        pickupPin: deliveryRecord.pickupPin,
         status: deliveryRecord.status,
         milestones: cloneMilestones(deliveryRecord.milestones),
         createdAt: now,
       },
       ...state.orders,
     ]
+  }
+
+  const fetchUserOrders = async (userId) => {
+    try {
+      const res = await fetch(
+        `${import.meta.env.VITE_BOOK_DRONE_API_URL || 'http://localhost:8880'}/book-drone/status`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId })
+        }
+      )
+
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(`Failed to fetch orders: ${errorData.message || res.status}`)
+      }
+
+      const result = await res.json()
+      console.log('Fetched orders:', result)
+      if (result.success && result.data.orders) {
+        state.orders = result.data.orders.map((order) => ({
+          trackingCode: `AS-${String(order.order_id).padStart(4, '0')}`,
+          userId: order.user_id,
+          pickupPin: order.pickup_pin,
+          fromLocation: order.pickup_location || 'Unknown',
+          toLocation: order.dropoff_location || 'Unknown',
+          status: order.status.toLowerCase(),
+          createdAt: order.created,
+          milestones: (Array.isArray(order.milestones) && order.milestones.length)
+            ? order.milestones.map((m) => {
+                const template = statusTemplate.find((t) => t.key === m.key) || {}
+                return {
+                  key: m.key,
+                  label: m.label || template.label || '',
+                  details: m.details || template.details || '',
+                  complete: !!m.complete,
+                  reachedAt: m.reachedAt || '',
+                }
+              })
+            : statusTemplate.map((item, index) => {
+                const targetStatusIndex = statusTargets[order.status?.toLowerCase()]
+                const isCompleted = index <= (targetStatusIndex === undefined ? -1 : targetStatusIndex - 1)
+                if (item.key === order.status?.toLowerCase()) {
+                  return {
+                    ...item,
+                    complete: true,
+                    reachedAt: order.created,
+                    details: item.details + ` (${order.status})`,
+                  }
+                }
+                return {
+                  ...item,
+                  complete: isCompleted,
+                  reachedAt: isCompleted ? order.created : '',
+                }
+              })
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching orders:', error)
+      state.orders = []
+    }
   }
 
   const advanceStatus = (trackingCode = state.delivery.trackingCode) => {
@@ -259,5 +327,6 @@ export const useAppStore = () => {
     saveBooking,
     completeStripePayment,
     advanceStatus,
+    fetchUserOrders,
   }
 }

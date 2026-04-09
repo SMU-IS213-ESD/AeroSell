@@ -44,6 +44,7 @@ def validate_route(
     """
     distance_km = haversine_distance_km(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon)
     duration_min = estimate_duration_min(distance_km)
+    flight_time_min = duration_min + 2
 
     if distance_km > _MAX_RANGE_KM:
         feasible = False
@@ -72,6 +73,7 @@ def validate_route(
         reason=reason,
         estimated_distance_km=distance_km,
         estimated_duration_min=duration_min,
+        flight_time_min=flight_time_min,
         checked_at=datetime.now(timezone.utc),
     )
 

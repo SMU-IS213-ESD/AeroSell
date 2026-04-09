@@ -1,19 +1,34 @@
 <script setup>
 import { computed, ref } from "vue";
 import { useAppStore } from "../store/appStore";
+import { useRouter } from "vue-router";
 
-const { state, advanceStatus } = useAppStore();
+const router = useRouter();
+const { state, advanceStatus, fetchUserOrders } = useAppStore();
 
 const query = ref("");
+const loading = ref(false);
 
 const userOrders = computed(() => {
-  const email = state.user?.email?.toLowerCase?.() || "";
-  if (!email) return [];
-
-  return state.orders.filter(
-    (item) => (item.ownerEmail || "").toLowerCase() === email,
-  );
+  const userId = state.user?.id || "";
+  if (!userId) {
+    console.log('No userId, returning empty array');
+    return [];
+  }
+  return state.orders;
 });
+
+const refreshData = async () => {
+  if (!state.user?.id) return;
+  loading.value = true;
+  try {
+    await fetchUserOrders(state.user.id);
+  } catch (error) {
+    console.error('Failed to refresh orders:', error);
+  } finally {
+    loading.value = false;
+  }
+};
 
 const visibleOrders = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -24,11 +39,25 @@ const visibleOrders = computed(() => {
 });
 
 const formatStatus = (value) => String(value || "").replace("_", " ");
+
+const navigateToClaim = (trackingCode) => {
+  router.push({ name: "claim", params: { trackingCode } });
+};
 </script>
 
 <template>
   <section class="panel status-panel">
     <h2>Delivery Status</h2>
+    <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+      <button
+        class="btn btn-secondary"
+        @click="refreshData"
+        :disabled="loading || !state.user?.id"
+        style="margin: 0;"
+      >
+        {{ loading ? "Refreshing..." : "Refresh" }}
+      </button>
+    </div>
 
     <div v-if="!state.user?.email" class="warn">
       Please login to view your delivery statuses.
@@ -63,6 +92,13 @@ const formatStatus = (value) => String(value || "").replace("_", " ");
           </li>
         </ul>
         <button
+          class="btn btn-secondary"
+          @click="navigateToClaim(delivery.trackingCode)"
+          style="margin-top: 12px"
+        >
+          Claim damage
+        </button>
+        <!-- <button
           class="btn btn-primary"
           :disabled="delivery.status === 'delivered'"
           @click="advanceStatus(delivery.trackingCode)"
@@ -70,7 +106,7 @@ const formatStatus = (value) => String(value || "").replace("_", " ");
           {{
             delivery.status === "delivered" ? "Delivered" : "Simulate Next Step"
           }}
-        </button>
+        </button> -->
       </article>
     </div>
 
