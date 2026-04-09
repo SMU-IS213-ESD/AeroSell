@@ -304,14 +304,12 @@ class AnomalyOrchestrator:
                     customer_email = self.get_user_email(user_id)
                     if not customer_email:
                         print(f"[Orchestrator] WARNING: Could not fetch email for user {user_id}", flush=True)
+                        continue
                     
                     customer_notification = {
-                        "user_id": user_id,
-                        "order_id": order_id,
-                        "customer_email": customer_email,
-                        "message": f"Your delivery (Order {order_id}) has been delayed due to drone maintenance. Support staff has been assigned.",
-                        "timestamp": timestamp,
-                        "type": "delivery_delay"
+                        "emailAddress": customer_email,
+                        "emailSubject": "delay",
+                        "emailBody": f"Your delivery (Order {order_id}) has been delayed due to drone maintenance. Support staff has been assigned.",
                     }
                     print(f"[Orchestrator] Publishing customer delay notification for order {order_id}", flush=True)
                     self.publish_notification("customer", customer_notification)
@@ -370,13 +368,16 @@ class AnomalyOrchestrator:
                 
                 # Step 3: Publish staff notification
                 staff_email = staff.get("email")
+                if not staff_email:
+                    print(f"[Orchestrator] WARNING: Could not fetch email for staff {staff_id}", flush=True)
+                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                    return
+
+                latitide = latitude
                 staff_notification = {
-                    "staff_id": staff_id,
-                    "staff_email": staff_email,
-                    "drone_id": drone_id,
-                    "location": {"latitude": latitude, "longitude": longitude},
-                    "timestamp": timestamp,
-                    "type": "drone_repair_assignment"
+                    "emailAddress": staff_email,
+                    "emailSubject": "assignment",
+                    "emailBody": f"You have been assigned to service drone {drone_id}, at lat: {latitide} long: {longitude}",
                 }
                 print(f"[Orchestrator] Publishing staff notification for staff {staff_id}", flush=True)
                 self.publish_notification("staff", staff_notification)
