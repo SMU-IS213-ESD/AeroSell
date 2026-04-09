@@ -385,8 +385,10 @@ import requests
 
 def activate_drone(drone_id):
 	drone = db.session.get(Drone, drone_id)
+	app.logger.debug(f"Activating drone {drone_id} with details: {drone.json() if drone else 'Drone not found'}")
 	if not drone:
 		abort(404, "Drone not found")
+		app.logger.error(f"Drone {drone_id} not found for activation")
 	# Accept order_info from request body
 	order_info = request.get_json(silent=True)
 	if not order_info:

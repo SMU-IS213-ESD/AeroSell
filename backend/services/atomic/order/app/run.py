@@ -124,6 +124,15 @@ def db_check():
 
 @app.route("/orders")
 def get_all():
+    # Support optional status filter: /orders?status=CREATED
+    status = request.args.get('status')
+    if status:
+        orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
+        return jsonify({
+            "code": 200,
+            "data": {"orders": [order.json() for order in orders]}
+        }), 200
+
     orderlist = db.session.scalars(db.select(Order)).all()
     if len(orderlist):
         return jsonify(
@@ -134,7 +143,7 @@ def get_all():
                 }
             }
         )
-    
+
     return jsonify(
         {
             "code": 404,

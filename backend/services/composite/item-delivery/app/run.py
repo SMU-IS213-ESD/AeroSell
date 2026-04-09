@@ -53,17 +53,33 @@ def fetch_confirmed_bookings():
 		resp = requests.get(f"{ORDER_SERVICE_URL}/orders?status=CREATED", timeout=10)
 		if resp.status_code == 200:
 			data = resp.json()
-			# support different shapes
-			if isinstance(data, dict) and "orders" in data:
-				return data.get("orders", [])
-			if isinstance(data, list):
-				return data
+			# support wrapped responses like { code:200, data: { orders: [...] } }
+			orders = None
+			if isinstance(data, dict):
+				if "orders" in data:
+					orders = data.get("orders")
+				elif "data" in data and isinstance(data.get("data"), dict) and "orders" in data.get("data"):
+					orders = data.get("data", {}).get("orders")
+			elif isinstance(data, list):
+				orders = data
+			app.logger.info(f"Fetched orders with status=CREATED: {len(orders or [])} items")
+			if orders is not None:
+				return orders or []
 		# fallback: try unfiltered orders and filter in code
 		resp = requests.get(f"{ORDER_SERVICE_URL}/orders", timeout=10)
 		if resp.status_code == 200:
 			data = resp.json()
-			items = data.get("orders") if isinstance(data, dict) else data
-			return [o for o in (items or []) if (o.get("status") or "").upper() == "CREATED"]
+			# unpack wrapper if present
+			items = None
+			if isinstance(data, dict):
+				if "orders" in data:
+					items = data.get("orders")
+				elif "data" in data and isinstance(data.get("data"), dict) and "orders" in data.get("data"):
+					items = data.get("data", {}).get("orders")
+			elif isinstance(data, list):
+				items = data
+			items = items or []
+			return [o for o in items if (o.get("status") or "").upper() == "CREATED"]
 	except Exception as e:
 		app.logger.exception(f"Failed fetching bookings: {e}")
 	return []
@@ -72,19 +88,21 @@ def fetch_confirmed_bookings():
 def assess_weather_for_booking(booking: dict) -> bool:
 	"""Call weather service to decide if it's safe. Returns True if safe."""
 	try:
-		payload = {
-			"pickup_location": booking.get("pickup_location"),
-			"dropoff_location": booking.get("dropoff_location"),
-			"order_id": booking.get("order_id") or booking.get("id")
-		}
-		resp = requests.post(f"{WEATHER_SERVICE_URL}/assess", json=payload, timeout=10)
+		order_id = booking.get("order_id") or booking.get("id")
+
+		resp = requests.get(f"{WEATHER_SERVICE_URL}/check", params={"lat": 1.28367, "lon": 103.85007}, timeout=10)
 		if resp.status_code == 200:
-			result = resp.json()
-			# expect { safe: true/false, reason: ... }
-			return bool(result.get("safe", False))
-		app.logger.error(f"Weather service returned {resp.status_code}")
+			data = resp.json()
+			safe = None
+			if isinstance(data, dict):
+				if "safe" in data:
+					safe = data.get("safe")
+				elif "data" in data and isinstance(data.get("data"), dict) and "safe" in data.get("data"):
+					safe = data.get("data", {}).get("safe")
+			return bool(safe)
+		app.logger.error(f"Weather service returned {resp.status_code} for order {order_id}")
 	except Exception as e:
-		app.logger.exception(f"Weather check failed: {e}")
+		app.logger.exception(f"Weather check failed for order {booking.get('order_id') or booking.get('id')}: {e}")
 	# conservative: if weather check fails, treat as unsafe
 	return False
 
@@ -95,26 +113,19 @@ def update_order_status(order_id, status):
 		return False
 	payload = {"status": status}
 	# Try multiple possible endpoints until one succeeds
-	candidates = [
-		f"{ORDER_SERVICE_URL}/orders/{order_id}/status",
-		f"{ORDER_SERVICE_URL}/order/{order_id}/status",
-		f"{ORDER_SERVICE_URL}/order/{order_id}",
-		f"{ORDER_SERVICE_URL}/orders/{order_id}",
-	]
-	headers = {"Content-Type": "application/json"}
-	for url in candidates:
-		try:
-			resp = requests.put(url, json=payload, timeout=10)
-			if resp.status_code in (200, 201):
-				app.logger.info(f"Updated order {order_id} -> {status} via {url}")
-				return True
-			# Some APIs may accept POST
-			resp = requests.post(url, json=payload, timeout=10)
-			if resp.status_code in (200, 201):
-				app.logger.info(f"Updated order {order_id} -> {status} via POST {url}")
-				return True
-		except Exception:
-			app.logger.debug(f"Attempt to update order via {url} failed")
+	url =f"{ORDER_SERVICE_URL}/orders/{order_id}/status",
+	try:
+		resp = requests.put(url, json=payload, timeout=10)
+		if resp.status_code in (200, 201):
+			app.logger.info(f"Updated order {order_id} -> {status} via {url}")
+			return True
+		# Some APIs may accept POST
+		resp = requests.post(url, json=payload, timeout=10)
+		if resp.status_code in (200, 201):
+			app.logger.info(f"Updated order {order_id} -> {status} via POST {url}")
+			return True
+	except Exception:
+		app.logger.debug(f"Attempt to update order via {url} failed")
 	app.logger.error(f"Failed to update order {order_id} to {status}")
 	return False
 
@@ -133,14 +144,14 @@ def dispatch_drone(booking: dict, drone: dict):
 	"""Send booking + route to drone service to initiate dispatch. Returns mission_id or None."""
 	try:
 		payload = {
-			"order_id": booking.get("order_id") or booking.get("id"),
-			"drone_id": drone.get("id"),
 			"pickup_location": booking.get("pickup_location"),
 			"dropoff_location": booking.get("dropoff_location"),
-			"route": booking.get("route") or {},
+			"user_id": booking.get("user_id"),
+			"estimated_pickup_time": booking.get("estimated_pickup_time")
 		}
-		resp = requests.post(f"{DRONE_SERVICE_URL}/dispatch", json=payload, timeout=10)
+		resp = requests.post(f"{DRONE_SERVICE_URL}/drones/activate", json=payload, timeout=10)
 		if resp.status_code in (200, 201):
+			update_order_status(booking.get("order_id") or booking.get("id"), "IN_DELIVERY")
 			data = resp.json()
 			return data.get("mission_id") or data.get("id")
 		app.logger.error(f"Drone dispatch failed: {resp.status_code} {resp.text}")
@@ -192,22 +203,16 @@ def process_confirmed_bookings():
 				})
 				continue
 
-			# If safe, fetch reserved drone details
 			drone_id = b.get("drone_id")
 			drone = get_drone_details(drone_id) if drone_id else None
 
-			# Mark Ready for Delivery
 			update_order_status(order_id, "READY_FOR_DELIVERY")
-
-			# Dispatch drone
 			mission_id = dispatch_drone(b, drone or {})
 			if not mission_id:
 				app.logger.error(f"Failed to dispatch drone for order {order_id}")
 				continue
 
 			update_order_status(order_id, "IN_TRANSIT")
-
-			# Poll mission in a background thread so scheduler loop isn't blocked
 			threading.Thread(target=poll_mission_and_finalize, args=(order_id, mission_id), daemon=True).start()
 
 		except Exception as e:

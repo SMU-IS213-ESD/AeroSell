@@ -605,7 +605,8 @@ def get_user_status():
             # Build milestones and mark complete based on backend status.
             milestones_template = [
                 {'key': 'scheduled', 'label': 'Scheduled', 'details': 'Delivery slot reserved'},
-                {'key': 'delivering', 'label': 'Delivering', 'details': 'Package are on the way to destination'},
+                {'key': 'in_delivery', 'label': 'Delivering', 'details': 'Package are on the way to destination'},
+                {'key': 'delivery_delay', 'label': 'Delivering', 'details': 'delivery is delayed, we are working to resolve the issue'},
                 {'key': 'delivered', 'label': 'Delivered', 'details': 'Package has been delivered'},
                 {'key': 'completed', 'label': 'Completed', 'details': 'Delivery completed'},
             ]
