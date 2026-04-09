@@ -1,0 +1,439 @@
+{
+  "asyncapi": "2.6.0",
+  "id": "urn:aerosell:messaging:asyncapi",
+  "info": {
+    "title": "AeroSell Messaging API",
+    "version": "1.0.0",
+    "description": "AsyncAPI specification for AeroSell AMQP/RabbitMQ messaging flows."
+  },
+  "defaultContentType": "application/json",
+  "servers": {
+    "rabbitmq": {
+      "url": "localhost:5672",
+      "protocol": "amqp",
+      "description": "RabbitMQ broker (use your deployment values for host/port/credentials)."
+    }
+  },
+  "channels": {
+    "drone.telemetry": {
+      "description": "Telemetry messages from drone simulator and drone services.",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey",
+          "exchange": {
+            "name": "drone",
+            "type": "direct",
+            "durable": true
+          },
+          "bindingVersion": "0.2.0"
+        }
+      },
+      "publish": {
+        "operationId": "publishTelemetry",
+        "summary": "Publish telemetry events.",
+        "message": {
+          "$ref": "#/components/messages/TelemetryMessage"
+        }
+      },
+      "subscribe": {
+        "operationId": "consumeTelemetry",
+        "summary": "Consume telemetry events.",
+        "message": {
+          "$ref": "#/components/messages/TelemetryMessage"
+        }
+      }
+    },
+    "drone.flight_update": {
+      "description": "Flight lifecycle updates (for example landed events).",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey",
+          "exchange": {
+            "name": "drone",
+            "type": "direct",
+            "durable": true
+          },
+          "bindingVersion": "0.2.0"
+        }
+      },
+      "publish": {
+        "operationId": "publishFlightUpdate",
+        "summary": "Publish flight update events.",
+        "message": {
+          "$ref": "#/components/messages/FlightUpdateMessage"
+        }
+      },
+      "subscribe": {
+        "operationId": "consumeFlightUpdate",
+        "summary": "Consume flight update events.",
+        "message": {
+          "$ref": "#/components/messages/FlightUpdateMessage"
+        }
+      }
+    },
+    "drone.anomaly": {
+      "description": "Drone anomaly events consumed by anomaly-manager.",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey",
+          "exchange": {
+            "name": "drone_anomaly",
+            "type": "topic",
+            "durable": true
+          },
+          "bindingVersion": "0.2.0"
+        }
+      },
+      "publish": {
+        "operationId": "publishDroneAnomaly",
+        "summary": "Publish drone anomaly event.",
+        "message": {
+          "$ref": "#/components/messages/DroneAnomalyMessage"
+        }
+      },
+      "subscribe": {
+        "operationId": "consumeDroneAnomaly",
+        "summary": "Consume drone anomaly event.",
+        "message": {
+          "$ref": "#/components/messages/DroneAnomalyMessage"
+        }
+      }
+    },
+    "repair.request": {
+      "description": "Repair workflow requests with DLX retry behavior.",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey",
+          "exchange": {
+            "name": "repair_exchange",
+            "type": "direct",
+            "durable": true
+          },
+          "bindingVersion": "0.2.0"
+        }
+      },
+      "publish": {
+        "operationId": "publishRepairRequest",
+        "summary": "Publish repair request.",
+        "message": {
+          "$ref": "#/components/messages/RepairRequestMessage"
+        }
+      },
+      "subscribe": {
+        "operationId": "consumeRepairRequest",
+        "summary": "Consume repair request.",
+        "message": {
+          "$ref": "#/components/messages/RepairRequestMessage"
+        }
+      }
+    },
+    "repair.retry": {
+      "description": "Dead-letter retry channel for repair workflow.",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey",
+          "exchange": {
+            "name": "repair_dlx",
+            "type": "direct",
+            "durable": true
+          },
+          "bindingVersion": "0.2.0"
+        }
+      },
+      "publish": {
+        "operationId": "publishRepairRetry",
+        "summary": "Publish repair retry message.",
+        "message": {
+          "$ref": "#/components/messages/RepairRequestMessage"
+        }
+      },
+      "subscribe": {
+        "operationId": "consumeRepairRetry",
+        "summary": "Consume repair retry message.",
+        "message": {
+          "$ref": "#/components/messages/RepairRequestMessage"
+        }
+      }
+    },
+    "notifications": {
+      "description": "User notifications consumed by email-relay (default exchange/queue routing).",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey",
+          "exchange": {
+            "name": "",
+            "type": "default"
+          },
+          "bindingVersion": "0.2.0"
+        }
+      },
+      "publish": {
+        "operationId": "publishNotification",
+        "summary": "Publish notification for email relay.",
+        "message": {
+          "$ref": "#/components/messages/NotificationMessage"
+        }
+      },
+      "subscribe": {
+        "operationId": "consumeNotification",
+        "summary": "Consume notification for relay delivery.",
+        "message": {
+          "$ref": "#/components/messages/NotificationMessage"
+        }
+      }
+    },
+    "drone_events": {
+      "description": "Fanout events used by order and item-delivery services.",
+      "bindings": {
+        "amqp": {
+          "is": "routingKey",
+          "exchange": {
+            "name": "drone_events",
+            "type": "fanout",
+            "durable": true
+          },
+          "bindingVersion": "0.2.0"
+        }
+      },
+      "publish": {
+        "operationId": "publishDroneEvent",
+        "summary": "Publish drone event.",
+        "message": {
+          "$ref": "#/components/messages/OrderStatusEventMessage"
+        }
+      },
+      "subscribe": {
+        "operationId": "consumeDroneEvent",
+        "summary": "Consume drone event.",
+        "message": {
+          "$ref": "#/components/messages/OrderStatusEventMessage"
+        }
+      }
+    }
+  },
+  "components": {
+    "messages": {
+      "TelemetryMessage": {
+        "name": "TelemetryMessage",
+        "title": "Telemetry Message",
+        "contentType": "application/json",
+        "payload": {
+          "$ref": "#/components/schemas/GenericEventPayload"
+        },
+        "examples": [
+          {
+            "name": "telemetryExample",
+            "payload": {
+              "drone_id": 7,
+              "event": "telemetry",
+              "battery": 85,
+              "lat": 1.296,
+              "lon": 103.85,
+              "timestamp": "2026-04-10T09:10:00Z"
+            }
+          }
+        ]
+      },
+      "FlightUpdateMessage": {
+        "name": "FlightUpdateMessage",
+        "title": "Flight Update Message",
+        "contentType": "application/json",
+        "payload": {
+          "$ref": "#/components/schemas/FlightUpdatePayload"
+        },
+        "examples": [
+          {
+            "name": "landedExample",
+            "payload": {
+              "event": "landed",
+              "drone_id": 7,
+              "order_id": 123,
+              "timestamp": "2026-04-10T09:18:00Z"
+            }
+          }
+        ]
+      },
+      "DroneAnomalyMessage": {
+        "name": "DroneAnomalyMessage",
+        "title": "Drone Anomaly Message",
+        "contentType": "application/json",
+        "payload": {
+          "$ref": "#/components/schemas/DroneAnomalyPayload"
+        },
+        "examples": [
+          {
+            "name": "anomalyExample",
+            "payload": {
+              "order_id": 123,
+              "drone_id": 7,
+              "anomaly": "DRONE_STUCK",
+              "timestamp": "2026-04-10T09:15:00Z"
+            }
+          }
+        ]
+      },
+      "RepairRequestMessage": {
+        "name": "RepairRequestMessage",
+        "title": "Repair Request Message",
+        "contentType": "application/json",
+        "payload": {
+          "$ref": "#/components/schemas/RepairRequestPayload"
+        },
+        "examples": [
+          {
+            "name": "repairRequestExample",
+            "payload": {
+              "drone_id": 7,
+              "assignment_id": 88,
+              "attempt": 1
+            }
+          }
+        ]
+      },
+      "NotificationMessage": {
+        "name": "NotificationMessage",
+        "title": "Notification Message",
+        "contentType": "application/json",
+        "payload": {
+          "$ref": "#/components/schemas/NotificationPayload"
+        },
+        "examples": [
+          {
+            "name": "notificationExample",
+            "payload": {
+              "emailAddress": "user@example.com",
+              "emailSubject": "Delivery update",
+              "emailBody": "Your order is now in delivery."
+            }
+          }
+        ]
+      },
+      "OrderStatusEventMessage": {
+        "name": "OrderStatusEventMessage",
+        "title": "Order Status Event Message",
+        "contentType": "application/json",
+        "payload": {
+          "$ref": "#/components/schemas/OrderStatusEventPayload"
+        },
+        "examples": [
+          {
+            "name": "statusEventExample",
+            "payload": {
+              "order_id": 123,
+              "status": "IN_DELIVERY"
+            }
+          }
+        ]
+      }
+    },
+    "schemas": {
+      "GenericEventPayload": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "FlightUpdatePayload": {
+        "type": "object",
+        "properties": {
+          "event": { "type": "string" },
+          "drone_id": { "type": "integer" },
+          "order_id": { "type": "integer" },
+          "timestamp": { "type": "string", "format": "date-time" }
+        },
+        "required": ["event", "drone_id"]
+      },
+      "DroneAnomalyPayload": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "integer" },
+          "drone_id": { "type": "integer" },
+          "anomaly": {
+            "type": "string",
+            "enum": ["DRONE_STUCK", "DRONE_OFF_COURSE", "DRONE_CRASH"]
+          },
+          "timestamp": { "type": "string", "format": "date-time" }
+        },
+        "required": ["drone_id", "anomaly"]
+      },
+      "RepairRequestPayload": {
+        "type": "object",
+        "properties": {
+          "drone_id": { "type": "integer" },
+          "assignment_id": { "type": "integer" },
+          "attempt": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["drone_id"]
+      },
+      "NotificationPayload": {
+        "type": "object",
+        "properties": {
+          "emailAddress": { "type": "string" },
+          "emailSubject": { "type": "string" },
+          "emailBody": { "type": "string" }
+        },
+        "required": ["emailAddress", "emailSubject", "emailBody"]
+      },
+      "OrderStatusEventPayload": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "integer" },
+          "status": { "type": "string" }
+        },
+        "required": ["order_id", "status"]
+      }
+    }
+  },
+  "x-notes": {
+    "services": {
+      "producers": {
+        "drone": ["drone.anomaly"],
+        "drone-simulator": ["drone.telemetry", "drone.flight_update"],
+        "book-drone": ["notifications"],
+        "item-delivery": ["notifications"],
+        "order": ["drone_events"],
+        "anomaly-manager": ["notifications", "repair.request", "repair.retry"]
+      },
+      "consumers": {
+        "drone": ["drone.telemetry", "drone.flight_update"],
+        "item-delivery": ["drone.flight_update", "drone_events"],
+        "order": ["drone_events"],
+        "email-relay": ["notifications"],
+        "anomaly-manager": ["drone.anomaly", "repair.request", "repair.retry"]
+      }
+    },
+    "queueBindings": {
+      "telemetry": {
+        "exchange": "drone",
+        "routing_key": "telemetry"
+      },
+      "flight_update": {
+        "exchange": "drone",
+        "routing_key": "flight_update"
+      },
+      "anomaly_recovery_queue": {
+        "exchange": "drone_anomaly",
+        "routing_key": "drone.anomaly"
+      },
+      "repair_queue": {
+        "exchange": "repair_exchange",
+        "routing_key": "repair.request",
+        "dead_letter_exchange": "repair_dlx",
+        "dead_letter_routing_key": "repair.retry"
+      },
+      "repair_dlx_queue": {
+        "exchange": "repair_dlx",
+        "routing_key": "repair.retry",
+        "ttl_ms": 3000,
+        "dead_letter_exchange": "repair_exchange",
+        "dead_letter_routing_key": "repair.request"
+      },
+      "drone_events": {
+        "exchange": "drone_events",
+        "routing_key": ""
+      },
+      "notifications": {
+        "exchange": "",
+        "routing_key": "notifications"
+      }
+    }
+  }
+}

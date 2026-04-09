@@ -1,0 +1,1464 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AeroSell Unified API",
+    "version": "1.0.0",
+    "description": "Unified Swagger/OpenAPI document for AeroSell HTTP APIs. AMQP interfaces are documented under the x-amqp extension because OpenAPI is HTTP-focused."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Kong API Gateway"
+    }
+  ],
+  "tags": [
+    { "name": "document" },
+    { "name": "drone" },
+    { "name": "flight-planning" },
+    { "name": "operations-support" },
+    { "name": "order" },
+    { "name": "payment" },
+    { "name": "user" },
+    { "name": "weather" },
+    { "name": "book-drone" },
+    { "name": "insurance-claim" },
+    { "name": "item-delivery" },
+    { "name": "third-party-insurance" },
+    { "name": "drone-simulator" }
+  ],
+  "paths": {
+    "/document/db-check": {
+      "get": {
+        "tags": ["document"],
+        "summary": "Document DB connectivity check",
+        "operationId": "documentDbCheck",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/document/upload": {
+      "post": {
+        "tags": ["document"],
+        "summary": "Upload document/evidence",
+        "operationId": "documentUpload",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file", "order_id"],
+                "properties": {
+                  "file": { "type": "string", "format": "binary" },
+                  "order_id": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Uploaded" }
+        }
+      }
+    },
+    "/document/documents/{order_id}": {
+      "get": {
+        "tags": ["document"],
+        "summary": "Get documents by order",
+        "operationId": "documentListByOrder",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Document list" }
+        }
+      }
+    },
+    "/drone/db-check": {
+      "get": {
+        "tags": ["drone"],
+        "summary": "Drone DB connectivity check",
+        "operationId": "droneDbCheck",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/drone/drones": {
+      "get": {
+        "tags": ["drone"],
+        "summary": "List drones",
+        "operationId": "droneList",
+        "responses": {
+          "200": { "description": "Drone list" }
+        }
+      },
+      "post": {
+        "tags": ["drone"],
+        "summary": "Create drone",
+        "operationId": "droneCreate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      }
+    },
+    "/drone/drones/available": {
+      "get": {
+        "tags": ["drone"],
+        "summary": "List available drones",
+        "operationId": "droneListAvailable",
+        "responses": {
+          "200": { "description": "Available drones" }
+        }
+      }
+    },
+    "/drone/drones/{drone_id}": {
+      "get": {
+        "tags": ["drone"],
+        "summary": "Get drone by ID",
+        "operationId": "droneGetById",
+        "parameters": [
+          {
+            "name": "drone_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Drone" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "patch": {
+        "tags": ["drone"],
+        "summary": "Update drone",
+        "operationId": "droneUpdate",
+        "parameters": [
+          {
+            "name": "drone_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      },
+      "delete": {
+        "tags": ["drone"],
+        "summary": "Delete drone",
+        "operationId": "droneDelete",
+        "parameters": [
+          {
+            "name": "drone_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Deleted" }
+        }
+      }
+    },
+    "/drone/drones/activate/{drone_id}": {
+      "post": {
+        "tags": ["drone"],
+        "summary": "Activate drone",
+        "operationId": "droneActivate",
+        "parameters": [
+          {
+            "name": "drone_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Activated" }
+        }
+      }
+    },
+    "/flight/health": {
+      "get": {
+        "tags": ["flight-planning"],
+        "summary": "Flight planning health",
+        "operationId": "flightHealth",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/flight/routes/validate": {
+      "post": {
+        "tags": ["flight-planning"],
+        "summary": "Validate route",
+        "operationId": "flightValidateRoute",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Validated" }
+        }
+      }
+    },
+    "/flight/routes/revalidate": {
+      "post": {
+        "tags": ["flight-planning"],
+        "summary": "Revalidate route",
+        "operationId": "flightRevalidateRoute",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Revalidated" }
+        }
+      }
+    },
+    "/flight/routes/{order_id}": {
+      "get": {
+        "tags": ["flight-planning"],
+        "summary": "Get route history",
+        "operationId": "flightGetRouteHistory",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Route history" }
+        }
+      }
+    },
+    "/flight/routes/pickup-points": {
+      "get": {
+        "tags": ["flight-planning"],
+        "summary": "List pickup points",
+        "operationId": "flightListPickupPoints",
+        "responses": {
+          "200": { "description": "Pickup point list" }
+        }
+      }
+    },
+    "/operations-support/assign": {
+      "post": {
+        "tags": ["operations-support"],
+        "summary": "Auto-assign support staff",
+        "operationId": "opsAssign",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Assigned" },
+          "201": { "description": "Assigned" }
+        }
+      }
+    },
+    "/operations-support/assignment": {
+      "post": {
+        "tags": ["operations-support"],
+        "summary": "Create assignment",
+        "operationId": "opsAssignmentCreate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      },
+      "get": {
+        "tags": ["operations-support"],
+        "summary": "List assignments",
+        "operationId": "opsAssignmentList",
+        "responses": {
+          "200": { "description": "Assignment list" }
+        }
+      }
+    },
+    "/operations-support/assignment/{assignment_id}": {
+      "get": {
+        "tags": ["operations-support"],
+        "summary": "Get assignment",
+        "operationId": "opsAssignmentGet",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Assignment" }
+        }
+      },
+      "put": {
+        "tags": ["operations-support"],
+        "summary": "Update assignment",
+        "operationId": "opsAssignmentUpdate",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      },
+      "delete": {
+        "tags": ["operations-support"],
+        "summary": "Delete assignment",
+        "operationId": "opsAssignmentDelete",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Deleted" }
+        }
+      }
+    },
+    "/operations-support/assignment/{assignment_id}/complete": {
+      "post": {
+        "tags": ["operations-support"],
+        "summary": "Complete assignment",
+        "operationId": "opsAssignmentComplete",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Completed" }
+        }
+      }
+    },
+    "/operations-support/staff": {
+      "post": {
+        "tags": ["operations-support"],
+        "summary": "Create support staff",
+        "operationId": "opsStaffCreate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      },
+      "get": {
+        "tags": ["operations-support"],
+        "summary": "List support staff",
+        "operationId": "opsStaffList",
+        "responses": {
+          "200": { "description": "Staff list" }
+        }
+      }
+    },
+    "/operations-support/staff/available": {
+      "get": {
+        "tags": ["operations-support"],
+        "summary": "List available support staff",
+        "operationId": "opsStaffListAvailable",
+        "responses": {
+          "200": { "description": "Available staff list" }
+        }
+      }
+    },
+    "/operations-support/staff/{staff_id}": {
+      "get": {
+        "tags": ["operations-support"],
+        "summary": "Get support staff",
+        "operationId": "opsStaffGet",
+        "parameters": [
+          {
+            "name": "staff_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Staff" }
+        }
+      },
+      "put": {
+        "tags": ["operations-support"],
+        "summary": "Update support staff",
+        "operationId": "opsStaffUpdate",
+        "parameters": [
+          {
+            "name": "staff_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      },
+      "delete": {
+        "tags": ["operations-support"],
+        "summary": "Delete support staff",
+        "operationId": "opsStaffDelete",
+        "parameters": [
+          {
+            "name": "staff_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Deleted" }
+        }
+      }
+    },
+    "/operations-support/db-check": {
+      "get": {
+        "tags": ["operations-support"],
+        "summary": "Operations Support DB connectivity check",
+        "operationId": "opsDbCheck",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/order/db-check": {
+      "get": {
+        "tags": ["order"],
+        "summary": "Order DB connectivity check",
+        "operationId": "orderDbCheck",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/order/orders": {
+      "get": {
+        "tags": ["order"],
+        "summary": "List orders",
+        "operationId": "orderList",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Order list" }
+        }
+      }
+    },
+    "/order/order": {
+      "post": {
+        "tags": ["order"],
+        "summary": "Create order",
+        "operationId": "orderCreate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      }
+    },
+    "/order/orders/{order_id}": {
+      "get": {
+        "tags": ["order"],
+        "summary": "Get order by ID",
+        "operationId": "orderGetById",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Order" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/order/orders/user/{user_id}": {
+      "get": {
+        "tags": ["order"],
+        "summary": "Get orders for user",
+        "operationId": "orderListByUser",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Order list" }
+        }
+      }
+    },
+    "/order/orders/drone/{drone_id}": {
+      "get": {
+        "tags": ["order"],
+        "summary": "Get orders for drone",
+        "operationId": "orderListByDrone",
+        "parameters": [
+          {
+            "name": "drone_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Order list" }
+        }
+      }
+    },
+    "/order/orders/{order_id}/status": {
+      "patch": {
+        "tags": ["order"],
+        "summary": "Update order status",
+        "operationId": "orderUpdateStatus",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      }
+    },
+    "/order/orders/by-timeslot": {
+      "get": {
+        "tags": ["order"],
+        "summary": "Get orders by timeslot",
+        "operationId": "orderListByTimeslot",
+        "parameters": [
+          {
+            "name": "timeslot",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date-time" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Order list" }
+        }
+      }
+    },
+    "/payment/db-check": {
+      "get": {
+        "tags": ["payment"],
+        "summary": "Payment DB connectivity check",
+        "operationId": "paymentDbCheck",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/payment/": {
+      "post": {
+        "tags": ["payment"],
+        "summary": "Create payment intent",
+        "operationId": "paymentCreateIntent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      },
+      "get": {
+        "tags": ["payment"],
+        "summary": "List payments",
+        "operationId": "paymentList",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "per_page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "order_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "transaction_id", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Payment list" }
+        }
+      }
+    },
+    "/payment/{payment_id}": {
+      "get": {
+        "tags": ["payment"],
+        "summary": "Get payment by ID",
+        "operationId": "paymentGetById",
+        "parameters": [
+          {
+            "name": "payment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Payment" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "put": {
+        "tags": ["payment"],
+        "summary": "Update payment",
+        "operationId": "paymentUpdate",
+        "parameters": [
+          {
+            "name": "payment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      }
+    },
+    "/payment/{payment_id}/status": {
+      "put": {
+        "tags": ["payment"],
+        "summary": "Update payment status",
+        "operationId": "paymentUpdateStatus",
+        "parameters": [
+          {
+            "name": "payment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      }
+    },
+    "/user/db-check": {
+      "get": {
+        "tags": ["user"],
+        "summary": "User DB connectivity check",
+        "operationId": "userDbCheck",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/user/register": {
+      "post": {
+        "tags": ["user"],
+        "summary": "Register user",
+        "operationId": "userRegister",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Registered" }
+        }
+      }
+    },
+    "/user/login": {
+      "post": {
+        "tags": ["user"],
+        "summary": "Login user",
+        "operationId": "userLogin",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "User profile" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/user/{user_id}": {
+      "get": {
+        "tags": ["user"],
+        "summary": "Get user",
+        "operationId": "userGetById",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "User" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "put": {
+        "tags": ["user"],
+        "summary": "Update user",
+        "operationId": "userUpdate",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      },
+      "delete": {
+        "tags": ["user"],
+        "summary": "Delete user",
+        "operationId": "userDelete",
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Deleted" }
+        }
+      }
+    },
+    "/weather/health": {
+      "get": {
+        "tags": ["weather"],
+        "summary": "Weather health",
+        "operationId": "weatherHealth",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/weather/weather/check": {
+      "get": {
+        "tags": ["weather"],
+        "summary": "Weather safety check",
+        "operationId": "weatherCheck",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "number", "minimum": -90, "maximum": 90 }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "number", "minimum": -180, "maximum": 180 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Weather assessment" }
+        }
+      }
+    },
+    "/weather/weather/current": {
+      "get": {
+        "tags": ["weather"],
+        "summary": "Current weather",
+        "operationId": "weatherCurrent",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "number", "minimum": -90, "maximum": 90 }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "number", "minimum": -180, "maximum": 180 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Weather data" }
+        }
+      }
+    },
+    "/book-drone/health": {
+      "get": {
+        "tags": ["book-drone"],
+        "summary": "Book-drone health",
+        "operationId": "bookDroneHealth",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/book-drone/book": {
+      "post": {
+        "tags": ["book-drone"],
+        "summary": "Book drone",
+        "operationId": "bookDroneCreate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" }
+        }
+      }
+    },
+    "/book-drone/available-drones": {
+      "get": {
+        "tags": ["book-drone"],
+        "summary": "Get available drones",
+        "operationId": "bookDroneAvailableDrones",
+        "parameters": [
+          {
+            "name": "timeslot",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "format": "date-time" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Drone list" }
+        }
+      }
+    },
+    "/book-drone/validate": {
+      "post": {
+        "tags": ["book-drone"],
+        "summary": "Validate booking",
+        "operationId": "bookDroneValidate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Validated" }
+        }
+      }
+    },
+    "/book-drone/status": {
+      "post": {
+        "tags": ["book-drone"],
+        "summary": "Get booking status by user",
+        "operationId": "bookDroneStatus",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_id"],
+                "properties": {
+                  "user_id": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Status" }
+        }
+      }
+    },
+    "/book-drone/confirm": {
+      "post": {
+        "tags": ["book-drone"],
+        "summary": "Confirm booking",
+        "operationId": "bookDroneConfirm",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Confirmed" }
+        }
+      }
+    },
+    "/book-drone/validate-route": {
+      "post": {
+        "tags": ["book-drone"],
+        "summary": "Validate route and estimate cost",
+        "operationId": "bookDroneValidateRoute",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Validation result" }
+        }
+      }
+    },
+    "/book-drone/webhook": {
+      "post": {
+        "tags": ["book-drone"],
+        "summary": "Stripe webhook",
+        "operationId": "bookDroneStripeWebhook",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Accepted" }
+        }
+      }
+    },
+    "/book-drone/create-payment-intent": {
+      "post": {
+        "tags": ["book-drone"],
+        "summary": "Create Stripe payment intent",
+        "operationId": "bookDroneCreatePaymentIntent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Payment intent" }
+        }
+      }
+    },
+    "/book-drone/payments/{payment_id}": {
+      "get": {
+        "tags": ["book-drone"],
+        "summary": "Get payment details",
+        "operationId": "bookDroneGetPayment",
+        "parameters": [
+          {
+            "name": "payment_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Payment details" }
+        }
+      }
+    },
+    "/insurance-claim/submit": {
+      "post": {
+        "tags": ["insurance-claim"],
+        "summary": "Submit insurance claim",
+        "operationId": "insuranceClaimSubmit",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["user_id", "order_id", "file"],
+                "properties": {
+                  "user_id": { "type": "string" },
+                  "order_id": { "type": "string" },
+                  "description": { "type": "string" },
+                  "file": { "type": "string", "format": "binary" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Submitted" }
+        }
+      }
+    },
+    "/item-delivery/health": {
+      "get": {
+        "tags": ["item-delivery"],
+        "summary": "Item delivery health",
+        "operationId": "itemDeliveryHealth",
+        "responses": {
+          "200": { "description": "OK" }
+        }
+      }
+    },
+    "/buy": {
+      "get": {
+        "tags": ["third-party-insurance"],
+        "summary": "Buy insurance ID",
+        "operationId": "thirdPartyInsuranceBuy",
+        "servers": [
+          {
+            "url": "http://insurance:8500",
+            "description": "Internal third-party insurance service"
+          }
+        ],
+        "responses": {
+          "200": { "description": "Insurance ID" }
+        }
+      }
+    },
+    "/claim": {
+      "post": {
+        "tags": ["third-party-insurance"],
+        "summary": "Submit insurance claim",
+        "operationId": "thirdPartyInsuranceClaim",
+        "servers": [
+          {
+            "url": "http://insurance:8500",
+            "description": "Internal third-party insurance service"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Claim result" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["third-party-insurance"],
+        "summary": "Insurance service health",
+        "operationId": "thirdPartyInsuranceHealth",
+        "servers": [
+          {
+            "url": "http://insurance:8500",
+            "description": "Internal third-party insurance service"
+          }
+        ],
+        "responses": {
+          "200": { "description": "Healthy" }
+        }
+      }
+    },
+    "/dronesim/error": {
+      "post": {
+        "tags": ["drone-simulator"],
+        "summary": "Inject drone simulator error",
+        "operationId": "droneSimInjectError",
+        "servers": [
+          {
+            "url": "http://drone-sim:8010",
+            "description": "Internal drone simulator"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Injected" }
+        }
+      }
+    },
+    "/dronesim/activate/{drone_id}": {
+      "post": {
+        "tags": ["drone-simulator"],
+        "summary": "Activate simulator drone",
+        "operationId": "droneSimActivate",
+        "servers": [
+          {
+            "url": "http://drone-sim:8010",
+            "description": "Internal drone simulator"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "drone_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GenericObject" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Activated" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenericObject": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Fallback schema used where source code has service-specific schema classes."
+      }
+    }
+  },
+  "x-amqp": {
+    "description": "AMQP interfaces for AeroSell services (modeled as vendor extension in Swagger/OpenAPI).",
+    "broker": {
+      "protocol": "amqp",
+      "urlEnv": "RABBITMQ_URL"
+    },
+    "exchanges": [
+      {
+        "name": "drone",
+        "type": "direct",
+        "usedBy": ["drone", "drone-simulator", "item-delivery"]
+      },
+      {
+        "name": "drone_anomaly",
+        "type": "topic",
+        "usedBy": ["drone", "anomaly-manager"]
+      },
+      {
+        "name": "drone_events",
+        "type": "fanout",
+        "usedBy": ["order", "item-delivery"]
+      },
+      {
+        "name": "repair_exchange",
+        "type": "direct",
+        "usedBy": ["anomaly-manager"]
+      },
+      {
+        "name": "repair_dlx",
+        "type": "direct",
+        "usedBy": ["anomaly-manager"]
+      },
+      {
+        "name": "notification_exchange",
+        "type": "topic",
+        "usedBy": ["anomaly-manager"]
+      }
+    ],
+    "queues": [
+      {
+        "name": "telemetry",
+        "bindings": [{ "exchange": "drone", "routing_key": "telemetry" }],
+        "consumers": ["drone"],
+        "producers": ["drone-simulator"]
+      },
+      {
+        "name": "flight_update",
+        "bindings": [{ "exchange": "drone", "routing_key": "flight_update" }],
+        "consumers": ["drone", "item-delivery"],
+        "producers": ["drone-simulator"]
+      },
+      {
+        "name": "notifications",
+        "bindings": [{ "exchange": "", "routing_key": "notifications" }],
+        "consumers": ["email-relay"],
+        "producers": ["book-drone", "item-delivery", "anomaly-manager"]
+      },
+      {
+        "name": "anomaly_recovery_queue",
+        "bindings": [{ "exchange": "drone_anomaly", "routing_key": "drone.anomaly" }],
+        "consumers": ["anomaly-manager"],
+        "producers": ["drone"]
+      },
+      {
+        "name": "repair_queue",
+        "bindings": [{ "exchange": "repair_exchange", "routing_key": "repair.request" }],
+        "consumers": ["anomaly-manager"],
+        "producers": ["anomaly-manager"],
+        "arguments": {
+          "x-dead-letter-exchange": "repair_dlx",
+          "x-dead-letter-routing-key": "repair.retry"
+        }
+      },
+      {
+        "name": "repair_dlx_queue",
+        "bindings": [{ "exchange": "repair_dlx", "routing_key": "repair.retry" }],
+        "consumers": ["anomaly-manager"],
+        "producers": ["anomaly-manager"],
+        "arguments": {
+          "x-message-ttl": 3000,
+          "x-dead-letter-exchange": "repair_exchange",
+          "x-dead-letter-routing-key": "repair.request"
+        }
+      },
+      {
+        "name": "drone_events",
+        "bindings": [{ "exchange": "drone_events", "routing_key": "" }],
+        "consumers": ["order", "item-delivery"],
+        "producers": ["order"]
+      }
+    ],
+    "messages": {
+      "droneAnomaly": {
+        "routing_key": "drone.anomaly",
+        "example": {
+          "order_id": 123,
+          "drone_id": 7,
+          "anomaly": "DRONE_STUCK",
+          "timestamp": "2026-04-10T09:15:00Z"
+        }
+      },
+      "flightUpdate": {
+        "routing_key": "flight_update",
+        "example": {
+          "event": "landed",
+          "drone_id": 7,
+          "order_id": 123,
+          "timestamp": "2026-04-10T09:18:00Z"
+        }
+      },
+      "notification": {
+        "routing_key": "notifications",
+        "example": {
+          "emailAddress": "user@example.com",
+          "emailSubject": "Delivery update",
+          "emailBody": "Your order is now in delivery."
+        }
+      },
+      "orderStatusEvent": {
+        "exchange": "drone_events",
+        "routing_key": "",
+        "example": {
+          "order_id": 123,
+          "status": "IN_DELIVERY"
+        }
+      },
+      "repairRequest": {
+        "exchange": "repair_exchange",
+        "routing_key": "repair.request",
+        "example": {
+          "drone_id": 7,
+          "assignment_id": 88,
+          "attempt": 1
+        }
+      }
+    }
+  }
+}
