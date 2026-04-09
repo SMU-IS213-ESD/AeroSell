@@ -3,3 +3,5 @@ frontend/Aerosell/.env
 .venv/
 .env
 __pycache__
+.github/
+.claude/
