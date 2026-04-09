@@ -404,16 +404,13 @@ def send_notification(user_id, booking_details):
 
         # Declare notification queue if it doesn't exist
         channel.queue_declare(queue='notifications', durable=True)
-
+        r = requests.get(f"{USER_SERVICE_URL}/users/{user_id}", timeout=10)
+        if r.status_code == 200:
+            email = r.json().get("email")
         message = {
-            'type': 'booking_confirmation',
-            'user_id': user_id,
-            'booking_id': booking_details.get('booking_id'),
-            'timeslot': booking_details.get('timeslot'),
-            'pickup_location': booking_details.get('pickup_location'),
-            'dropoff_location': booking_details.get('dropoff_location'),
-            'amount_paid': booking_details.get('amount_paid'),
-            'drone_id': booking_details.get('drone_id')
+            "emailAddress": email,
+            "emailSubject": "booking_confirmation",
+            "emailBody": "Your booking is confirmed. Pickup PIN: " + booking_details.get('pickup_pin')
         }
 
         channel.basic_publish(
@@ -506,19 +503,6 @@ def book_drone(json_data=None, **kwargs):
 
     # Step 7: Finalize & Notify
     booking_id = str(uuid.uuid4())
-    booking_details = {
-        **data, # Spread input data
-        'booking_id': booking_id,
-        'drone_id': drone_id,
-        'order_id': order_data.get('order_id'),
-        'payment_id': payment_id,
-        'amount_paid': delivery_cost,
-        'insurance_id': insurance_id,
-        'status': 'CONFIRMED'
-    }
-    
-    send_notification(data['user_id'], booking_details)
-
     return {
         'success': True,
         'booking_id': booking_id,
