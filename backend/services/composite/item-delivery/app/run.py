@@ -7,7 +7,7 @@ import logging
 import sys
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import String, Integer
-from flask import jsonify, request
+from flask import request
 import requests
 import pika
 from apscheduler.schedulers.background import BackgroundScheduler

@@ -3,7 +3,7 @@ Route controller — parse/validate HTTP requests, delegate to the service layer
 and format responses. No business logic lives here.
 """
 
-from flask import abort, jsonify, request
+from flask import abort, request
 
 from app.models.pickup_point import PickupPoint
 from app.services.route_validation_service import (
@@ -17,7 +17,7 @@ from app.services.route_validation_service import (
 def list_pickup_points():
     """GET /routes/pickup-points - Return all available pickup/dropoff locations."""
     points = PickupPoint.query.all()
-    return jsonify([point.to_dict() for point in points]), 200
+    return [point.to_dict() for point in points]
 
 
 def validate_route_by_ids_handler():
@@ -52,7 +52,7 @@ def validate_route_by_ids_handler():
         pickup_point_id=pickup_point_id_int,
         dropoff_point_id=dropoff_point_id_int
     )
-    return jsonify(record.to_dict()), 201
+    return record.to_dict()
 
 
 def _parse_coordinate(value, field_name: str) -> float:
@@ -96,7 +96,7 @@ def validate_route_handler():
     dropoff_lon = _parse_coordinate(dropoff["lon"], "dropoff.lon")
 
     record = validate_route(order_id, pickup_lat, pickup_lon, dropoff_lat, dropoff_lon)
-    return jsonify(record.to_dict()), 201
+    return record.to_dict()
 
 
 def revalidate_route_handler():
@@ -121,7 +121,7 @@ def revalidate_route_handler():
     except ValueError as exc:
         abort(404, description=str(exc))
 
-    return jsonify(record.to_dict()), 201
+    return record.to_dict()
 
 
 def get_route_history_handler(order_id: str):
@@ -134,4 +134,4 @@ def get_route_history_handler(order_id: str):
     if not records:
         abort(404, description=f"No route validations found for orderId '{order_id}'.")
 
-    return jsonify([r.to_dict() for r in records]), 200
+    return [r.to_dict() for r in records]

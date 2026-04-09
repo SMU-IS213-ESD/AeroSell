@@ -1,7 +1,7 @@
 
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import Integer, String, Float, Boolean, DateTime
-from flask import request, jsonify
+from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 import os
@@ -255,25 +255,27 @@ def get_staff_by_id(staff_id):
 def update_staff(staff_id):
 	staff = SupportStaff.query.get(staff_id)
 	if not staff:
-		return jsonify({"error": "Staff not found"}), 404
+		abort(404, "Staff not found")
 	data = request.get_json(silent=True)
 	for field in ["name", "email", "is_available"]:
 		if field in data:
 			setattr(staff, field, data[field])
 	db.session.commit()
-	return jsonify({"staff": staff.json()}), 200
+	return staff
 
 # Delete a staff member by ID
-@app.route("/operations-support/staff/<int:staff_id>", methods=["DELETE"])
+@app.delete("/operations-support/staff/<int:staff_id>")
+@app.doc(tags=["SupportStaff"])
 def delete_staff(staff_id):
 	staff = SupportStaff.query.get(staff_id)
 	if not staff:
-		return jsonify({"error": "Staff not found"}), 404
+		abort(404, "Staff not found")
 	db.session.delete(staff)
 	db.session.commit()
-	return jsonify({"message": "Staff deleted"}), 200
+	return {"message": "Staff deleted"}, 200
 
-@app.route("/db-check", methods=["GET"])
+@app.get("/db-check")
+@app.doc(tags=["Health Check"])
 def db_check():
 	"""Return JSON true if a simple DB query succeeds, otherwise false.
 
@@ -284,10 +286,12 @@ def db_check():
 		# Lightweight check: run a simple SELECT 1
 		result = db.session.execute(text("SELECT 1")).scalar()
 		ok = bool(result)
-		return jsonify(ok), (200 if ok else 500)
+		if not ok:
+			abort(500, "Database check failed")
+		return {"status": "ok"}
 	except Exception:
 		app.logger.exception("Database connectivity check failed")
-		return jsonify(False), 500
+		abort(500, "Database connectivity check failed")
 
 
 if __name__ == "__main__":

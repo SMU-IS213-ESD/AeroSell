@@ -2,7 +2,7 @@ import random
 
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import String, Integer, Boolean, Float, DateTime
-from flask import request, jsonify
+from flask import request
 from typing import List
 import os
 import requests
@@ -274,9 +274,6 @@ def verify_payment_intent(payment_intent_id):
     except Exception as e:
         app.logger.error(f"Error verifying payment intent: {e}")
         return None
-    except Exception as e:
-        app.logger.error(f"Error verifying payment intent: {e}")
-        return None
 
 def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, payment_details, insurance_id=None):
     """Create order record with payment details"""
@@ -376,7 +373,7 @@ def send_notification(user_id, booking_details):
 @app.doc(tags=["Health"], summary="Service health check")
 def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "service": "book-drone"}, 200
+    return {"status": "healthy", "service": "book-drone"}
 
 @app.post("/book")
 @app.doc(tags=["Bookings"], summary="Book a drone for delivery")
@@ -501,7 +498,7 @@ def book_drone():
 
     except Exception as e:
         app.logger.error(f"Booking error: {str(e)}")
-        return jsonify({'error': f'Booking failed: {str(e)}'}), 500
+        abort(500, f"Booking failed: {str(e)}")
 
 @app.get("/available-drones")
 @app.doc(tags=["Drones"], summary="Get available drones")
@@ -515,12 +512,7 @@ def get_available_drones_endpoint():
 
         timeslot = datetime.fromisoformat(timeslot_str.replace('Z', '+00:00'))
         available_drones = get_available_drones(timeslot)
-
-        return {
-            'timeslot': timeslot.isoformat(),
-            'available_drones': available_drones,
-            'count': len(available_drones)
-        }, 200
+        return available_drones
     except Exception as e:
         abort(500, str(e))
 
@@ -591,7 +583,7 @@ def validate_booking():
             'timeslot': timeslot.isoformat(),
             'delivery_cost': delivery_cost,
             'message': 'Validation successful. Proceed to payment.'
-        }, 200
+        }
 
     except Exception as e:
         app.logger.error(f"Validation error: {str(e)}")
@@ -679,7 +671,7 @@ def get_user_status():
             "data": {
                 'orders': status_orders
             }
-        }, 200
+        }
 
     except Exception as e:
         app.logger.error(f"Status fetch error: {e}")
@@ -799,7 +791,7 @@ def validate_route():
     try:
         data = request.get_json()
         if 'pickup_location' not in data or 'dropoff_location' not in data:
-            return jsonify({'error': 'Missing pickup or dropoff location'}), 400
+            abort(400, 'Missing pickup or dropoff location')
 
         result = validate_route_and_calculate_cost(
             data['pickup_location'],
@@ -807,11 +799,11 @@ def validate_route():
         )
 
         if not result:
-            return jsonify({'error': 'Route validation failed'}), 400
+            abort(400, 'Route validation failed')
 
-        return jsonify(result), 200
+        return result
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        abort(500, str(e))
 
 @app.post("/webhook")
 @app.doc(tags=["Payments"], summary="Stripe webhook handler")
@@ -834,17 +826,17 @@ def stripe_webhook():
             try:
                 event = json.loads(payload)
             except:
-                return jsonify({"error": "invalid JSON payload"}), 400
+                abort(400, "invalid JSON payload")
         else:
-            return jsonify({"error": "missing Stripe signature header"}), 400
+            abort(400, "missing Stripe signature header")
     else:
         # Verify Stripe signature
         try:
             event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
         except ValueError:
-            return jsonify({"error": "invalid payload"}), 400
+            abort(400, "invalid payload")
         except stripe.error.SignatureVerificationError:
-            return jsonify({"error": "invalid signature"}), 400
+            abort(400, "invalid signature")
 
     typ = event["type"]
     obj = event["data"]["object"]
@@ -864,12 +856,12 @@ def stripe_webhook():
 
             if payment_response.status_code != 200:
                 app.logger.error(f"Failed to get payment: {payment_response.status_code}")
-                return jsonify({"error": "Payment not found"}), 404
+                abort(404, "Payment not found")
 
             payments = payment_response.json().get("payments", [])
             if not payments:
                 app.logger.error(f"No payment found for transaction_id {tid}")
-                return jsonify({"error": "Payment not found"}), 404
+                abort(404, "Payment not found")
 
             payment = payments[0]
             payment_id = payment.get("id")
@@ -884,13 +876,13 @@ def stripe_webhook():
 
             if update_resp.status_code != 200:
                 app.logger.error(f"Failed to update payment status: {update_resp.status_code}")
-                return jsonify({"error": "Failed to update payment"}), 500
+                abort(500, "Failed to update payment")
 
             app.logger.info(f"Payment {payment_id} status updated to succeeded")
 
         except Exception as e:
             app.logger.exception(f"Error updating payment status: {e}")
-            return jsonify({"error": "Failed to update payment"}), 500
+            abort(500, "Failed to update payment")
 
         # Step 2: Call insurance service to get insurance_id
         insurance_id = None
@@ -992,22 +984,22 @@ def stripe_webhook():
                             except Exception as e:
                                 app.logger.exception(f"Exception updating payment record: {e}")
 
-                            return jsonify({
+                            return {
                                 "received": True,
                                 "order_id": order_id,
                                 "insurance_id": insurance_id
-                            }), 200
+                            }
                     else:
                         app.logger.error(f"Failed to create order: {order_response.status_code}")
-                        return jsonify({"error": "Failed to create order"}), 500
+                        abort(500, "Failed to create order")
                 else:
                     app.logger.warning("No order_data in payment details, order creation skipped")
             else:
                 app.logger.error(f"Failed to fetch payment details: {payment_detail_response.status_code}")
-                return jsonify({"error": "Failed to fetch payment details"}), 500
+                abort(500, "Failed to fetch payment details")
         except Exception as e:
             app.logger.exception("Failed to create order")
-            return jsonify({"error": "Failed to create order"}), 500
+            abort(500, "Failed to create order")
 
     elif typ == "payment_intent.payment_failed":
         tid = _get_obj_id(obj)
@@ -1037,7 +1029,7 @@ def stripe_webhook():
         except Exception as e:
             app.logger.exception(f"Error updating payment status: {e}")
 
-    return jsonify({"received": True}), 200
+    return {"received": True}
 
 
 @app.post("/create-payment-intent")
@@ -1094,14 +1086,14 @@ def create_payment_intent():
                     # Fallback for create response
                     client_secret = result.get("client_secret")
 
-                return jsonify({
+                return {
                     "success": True,
                     "client_secret": client_secret,
                     "payment_id": payment_id,
                     "transaction_id": transaction_id
-                }), 200
+                }
 
-        return jsonify({"error": "Failed to create payment intent"}), 502
+        abort(502, "Failed to create payment intent")
     except Exception as e:
         app.logger.error(f"Error creating payment intent: {e}")
         abort(500, f"Payment intent creation failed: {str(e)}")

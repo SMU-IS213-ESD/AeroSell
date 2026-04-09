@@ -43,7 +43,7 @@ def db_check():
 		ok = bool(result)
 		if not ok:
 			abort(500, "Database unreachable")
-		return {"status": "ok"}, 200
+		return {"status": "ok"}
 	except Exception:
 		app.logger.exception("Database connectivity check failed")
 		abort(500, "Database error")

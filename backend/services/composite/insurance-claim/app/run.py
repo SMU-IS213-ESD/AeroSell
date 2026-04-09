@@ -1,6 +1,6 @@
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import String, Boolean
-from flask import request, jsonify
+from flask import request
 import requests
 import os
 
@@ -67,14 +67,14 @@ def submit_claim():
                 timeout=5
             )
 
-        return jsonify({
+        return {
             "status": "success",
             "claim_result": status_msg,
             "evidence_recorded": stored_evidence_path
-        }), 200
+        }
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        abort(500, str(e))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8102)

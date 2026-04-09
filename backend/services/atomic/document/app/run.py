@@ -1,10 +1,16 @@
 import os
 import time
 from apiflask import APIFlask, Schema, abort
-from apiflask.fields import String, Integer, DateTime
-from flask import request, jsonify
+from apiflask.fields import String, Integer, DateTime, List
+from flask import request
 from werkzeug.utils import secure_filename
 from .models import db, Document
+
+# Schemas for API documentation
+class DocumentOut(Schema):
+	filename = String()
+	order_id = String()
+	file_path = String()
 
 app = APIFlask(
 	__name__,
@@ -38,7 +44,7 @@ def db_check():
 	"""Verify database is reachable"""
 	try:
 		db.session.execute(db.text('SELECT 1'))
-		return {"status": "ok"}, 200
+		return {"status": "ok"}
 	except Exception as e:
 		app.logger.exception("DB check failed")
 		abort(500, str(e))
@@ -90,5 +96,4 @@ def get_documents_by_order(order_id):
 	return docs
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8001)
     app.run(host='0.0.0.0', port=8001)

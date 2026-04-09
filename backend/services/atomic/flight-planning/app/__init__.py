@@ -1,6 +1,5 @@
 import os
 from apiflask import APIFlask, abort
-from flask import jsonify
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()

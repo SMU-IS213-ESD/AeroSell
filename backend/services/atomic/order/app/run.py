@@ -143,7 +143,7 @@ def db_check():
 		ok = bool(result)
 		if not ok:
 			abort(500, "Database unreachable")
-		return {"status": "ok"}, 200
+		return {"status": "ok"}
 	except Exception:
 		app.logger.exception("Database connectivity check failed")
 		abort(500, "Database error")
@@ -156,30 +156,19 @@ def get_all():
     status = request.args.get('status')
     if status:
         orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
-        return jsonify({
-            "code": 200,
-            "data": {"orders": [order.json() for order in orders]}
-        }), 200
+        if orders:
+            return [order.json() for order in orders]
+        abort(404, "There are no orders with that status.")
 
     orderlist = db.session.scalars(db.select(Order)).all()
     if len(orderlist):
-        return jsonify(
-            {
-                "code": 200,
-                "data": {
-                    "orders": [order.json() for order in orderlist]
-                }
-            }
-        )
+        return [order.json() for order in orderlist]
 
-    return jsonify(
-        {
-            "code": 404,
-            "message": "There are no orders."
-        }
-    ), 404
+    abort(404, "There are no orders.")
 
-@app.route("/order", methods=["POST"])
+@app.post("/order")
+@app.doc(tags=["Orders"], summary="Create a new order")
+@app.output(OrderOut, status_code=201)
 def create_order():
 	data = request.json
 	app.logger.info(f"Received order creation request: {data}")
@@ -229,7 +218,7 @@ def create_order():
 		print(f"Error: {str(e)}")
 		abort(500, f"Error occurred while creating the order. {str(e)}")
 	
-	return order
+	return order.json()
 
 @app.get("/orders/<int:order_id>")
 @app.doc(tags=["Orders"], summary="Get order by ID")
@@ -278,13 +267,13 @@ def get_orders_by_drone(drone_id):
 	
 	return orders
 
-@app.route("/orders/<int:order_id>/status", methods=["PUT", "PATCH"])
+@app.patch("/orders/<int:order_id>/status")
 @app.doc(tags=["Orders"], summary="Update order status")
 def update_status(order_id):
     order = Order.query.get(order_id)
     if not order:
         print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
-        return jsonify({"error": "Order not found"}), 404
+        abort(404, "Order not found")
     data = request.json
     old_status = order.status
     order.status = data["status"]
@@ -294,7 +283,7 @@ def update_status(order_id):
     print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
     # Publish event
     # publish_status_event(order.id, order.status)
-    return jsonify({"message": "Order updated"})
+    return {"message": "Order updated"}
 
 @app.get("/orders/by-timeslot")
 @app.doc(tags=["Orders"], summary="Get orders by timeslot")

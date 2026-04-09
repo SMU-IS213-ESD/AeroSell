@@ -1,6 +1,6 @@
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import Integer, String, Float, DateTime, Nested, List
-from flask import request, jsonify
+from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 import os
@@ -85,7 +85,7 @@ def db_check():
 		ok = bool(result)
 		if not ok:
 			abort(500, "Database unreachable")
-		return {"status": "ok"}, 200
+		return {"status": "ok"}
 	except Exception:
 		app.logger.exception("Database connectivity check failed")
 		abort(500, "Database error")
@@ -218,7 +218,7 @@ def list_payments():
 
 	pagination = query.order_by(Payment.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
 	items = [p.to_dict() for p in pagination.items]
-	return {"payments": items, "page": page, "per_page": per_page, "total": pagination.total}, 200
+	return {"payments": items, "page": page, "per_page": per_page, "total": pagination.total}
 
 
 
@@ -240,7 +240,7 @@ def update_payment_status(payment_id: int):
 		db.session.rollback()
 		app.logger.exception("Failed updating payment status")
 		abort(500, "internal error")
-	return {"success": True}, 200
+	return {"success": True}
 
 @app.put("/<int:payment_id>")
 @app.doc(tags=["Payments"], summary="Update payment")
