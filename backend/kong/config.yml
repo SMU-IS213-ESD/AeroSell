@@ -72,6 +72,13 @@ services:
         paths:
           - /insurance-claim
 
+  - name: item-delivery-service
+    url: http://item-delivery:8103
+    routes:
+      - name: item-delivery-route
+        paths:
+          - /item-delivery
+
 plugins:
   - name: rate-limiting
     config:

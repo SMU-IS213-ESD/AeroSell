@@ -238,6 +238,17 @@ services:
     ports:
       - "8102:8102"
 
+  item-delivery:
+    build: ./services/composite/item-delivery
+    volumes:
+      - ./services/composite/item-delivery/app:/app
+    networks:
+      - kong-net
+    ports:
+      - "8103:8103"
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+
 
 #third-party services
   stripe-cli:
