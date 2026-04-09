@@ -895,14 +895,53 @@ def stripe_webhook():
                         "insurance_id": insurance_id
                     }
 
-                    # Create order
-                    order_response = requests.post(
-                        f"{ORDER_SERVICE_URL}/order",
-                        json=order_payload,
-                        timeout=10
-                    )
+                    # Create order: try Kong first, fallback to direct service URL on gateway upstream errors.
+                    order_response = None
+                    primary_order_url = f"{ORDER_SERVICE_URL}/order"
+                    direct_order_url = os.environ.get("ORDER_SERVICE_DIRECT_URL", "http://order:8006/order")
+                    order_urls = [primary_order_url]
+                    if direct_order_url and direct_order_url not in order_urls:
+                        order_urls.append(direct_order_url)
 
-                    if order_response.status_code == 201:
+                    for order_url in order_urls:
+                        for attempt in range(2):
+                            try:
+                                # Use separate connect/read timeouts to allow slower upstream processing.
+                                order_response = requests.post(
+                                    order_url,
+                                    json=order_payload,
+                                    timeout=(5, 25)
+                                )
+                            except requests.exceptions.ReadTimeout:
+                                app.logger.warning(
+                                    f"Timeout creating order via {order_url} (attempt {attempt + 1}/2)"
+                                )
+                                if attempt == 1:
+                                    order_response = None
+                                continue
+                            except requests.exceptions.RequestException as e:
+                                app.logger.warning(f"Request error creating order via {order_url}: {e}")
+                                order_response = None
+                                break
+
+                            if order_response.status_code == 201:
+                                break
+
+                            # Kong can return upstream errors while order service is healthy.
+                            if order_url == primary_order_url and order_response.status_code in (502, 503, 504):
+                                app.logger.warning(
+                                    f"Gateway order create failed ({order_response.status_code}); "
+                                    f"trying direct order service URL"
+                                )
+                                break
+
+                            # For non-success non-gateway statuses, no benefit retrying same URL.
+                            break
+
+                        if order_response is not None and order_response.status_code == 201:
+                            break
+
+                    if order_response is not None and order_response.status_code == 201:
                         order_result = order_response.json()
 
                         # Determine order_id robustly from response
@@ -937,7 +976,9 @@ def stripe_webhook():
                                 "insurance_id": insurance_id
                             }
                     else:
-                        app.logger.error(f"Failed to create order: {order_response.status_code}")
+                        status = order_response.status_code if order_response is not None else "no_response"
+                        body = order_response.text if order_response is not None else ""
+                        app.logger.error(f"Failed to create order: {status} {body}")
                         abort(500, "Failed to create order")
                 else:
                     app.logger.warning("No order_data in payment details, order creation skipped")
