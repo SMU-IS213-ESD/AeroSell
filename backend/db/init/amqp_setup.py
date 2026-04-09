@@ -14,7 +14,8 @@ import pika
 import sys
 import os
 from os import environ
-
+import dotenv
+dotenv.load_dotenv(".env")
 # Configuration - Read from environment variables
 AMQP_HOST = environ.get("AMQP_HOST")
 AMQP_PORT = int(environ.get("AMQP_PORT", "5672"))
@@ -56,7 +57,6 @@ QUEUES = [
         "arguments": {
             "x-dead-letter-exchange": "repair_dlx",
             "x-dead-letter-routing-key": "repair.retry",
-            "x-message-ttl": 3000,  # 3 seconds in milliseconds
         },
     },
     # Dead letter queue for repair retries
@@ -65,6 +65,11 @@ QUEUES = [
         "exchange": "repair_dlx",
         "routing_key": "repair.retry",
         "durable": True,
+        "arguments": {
+            "x-message-ttl": 3000,  # 3 seconds in milliseconds
+            "x-dead-letter-exchange": "repair_exchange",
+            "x-dead-letter-routing-key": "repair.request",
+        },
     },
     # Unified notifications queue
     {
@@ -116,6 +121,17 @@ def create_exchanges(channel):
 def create_queues(channel):
     """Create all required queues and bind to exchanges."""
     print("\n[*] Creating queues and bindings...")
+
+    # Queue arguments are immutable in RabbitMQ. Recreate repair queues so
+    # DLX/TTL updates are applied consistently across reruns.
+    for queue_name in ("repair_queue", "repair_dlx_queue"):
+        try:
+            channel.queue_delete(queue=queue_name, if_unused=False, if_empty=False)
+            print(f"    [*] Deleted existing queue '{queue_name}' to refresh arguments")
+        except Exception:
+            # Ignore if queue does not exist yet.
+            pass
+
     for queue in QUEUES:
         try:
             # Declare queue with optional arguments (e.g., DLX, TTL)

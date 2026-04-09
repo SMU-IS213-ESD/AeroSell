@@ -111,7 +111,6 @@ class AnomalyOrchestrator:
             arguments={
                 "x-dead-letter-exchange": REPAIR_DLX,
                 "x-dead-letter-routing-key": "repair.retry",
-                "x-message-ttl": 3000,  # 3 seconds
             }
         )
         
@@ -124,7 +123,15 @@ class AnomalyOrchestrator:
         
         # DLX queue for retry
         print(f"[Orchestrator] Declaring queue 'repair_dlx_queue'", flush=True)
-        self.channel.queue_declare(queue="repair_dlx_queue", durable=True)
+        self.channel.queue_declare(
+            queue="repair_dlx_queue",
+            durable=True,
+            arguments={
+                "x-message-ttl": 3000,  # 3 seconds
+                "x-dead-letter-exchange": REPAIR_EXCHANGE,
+                "x-dead-letter-routing-key": "repair.request",
+            }
+        )
         
         print(f"[Orchestrator] Binding queue 'repair_dlx_queue' to exchange '{REPAIR_DLX}' with routing_key='repair.retry'", flush=True)
         self.channel.queue_bind(
@@ -188,16 +195,14 @@ class AnomalyOrchestrator:
             print(f"[Orchestrator] Failed to fetch user email for {user_id}: {e}", flush=True)
             return None
     
-    def assign_staff(self, staff_id, drone_id, longitude, latitude):
-        """Create staff assignment for drone repair"""
+    def assign_staff(self, drone_id, longitude, latitude):
+        """Ask operations-support service to auto-assign first available staff."""
         try:
-            url = f"{SUPPORT_SERVICE_URL}/operations-support/assignment"
+            url = f"{SUPPORT_SERVICE_URL}/operations-support/assign"
             payload = {
-                "staff_id": staff_id,
                 "drone_id": drone_id,
                 "longitude": longitude,
                 "latitude": latitude,
-                "status": "ASSIGNED"
             }
             print(f"[Orchestrator] Calling: POST {url} with payload {payload}", flush=True)
             response = requests.post(url, json=payload, timeout=5)
@@ -347,23 +352,12 @@ class AnomalyOrchestrator:
             print(f"[Orchestrator] Location: ({latitude}, {longitude})", flush=True)
             print(f"[Orchestrator] ================================", flush=True)
             
-            # Step 1: Get available repair staff
-            staff_list = self.get_available_staff()
-            print(f"[Orchestrator] Found {len(staff_list)} available staff members", flush=True)
-            
-            if not staff_list:
-                print("[Orchestrator] No available staff - NACKing with requeue=False to trigger DLX retry", flush=True)
-                # NACK with requeue=False sends to DLX, waits TTL, then returns to repair_queue
-                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
-                return
-            
-            # Step 2: Assign first available staff to drone repair
-            staff = staff_list[0]
-            staff_id = staff.get("id")
-            print(f"[Orchestrator] Attempting to assign staff {staff_id} to drone {drone_id}", flush=True)
-            assignment = self.assign_staff(staff_id, drone_id, longitude, latitude)
+            # Step 1: Operations-support auto-picks first available staff.
+            assignment = self.assign_staff(drone_id, longitude, latitude)
             
             if assignment:
+                staff = assignment.get("staff") or {}
+                staff_id = staff.get("id")
                 print(f"[Orchestrator] Successfully assigned staff {staff_id} to drone {drone_id}", flush=True)
                 
                 # Step 3: Publish staff notification
@@ -386,7 +380,7 @@ class AnomalyOrchestrator:
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 print(f"[Orchestrator] ✓ Repair request completed - staff assigned and notified", flush=True)
             else:
-                print("[Orchestrator] Failed to assign staff - NACKing with requeue=False for DLX retry", flush=True)
+                print("[Orchestrator] No staff available/assignment failed - NACKing with requeue=False for DLX retry", flush=True)
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
         
         except Exception as e:

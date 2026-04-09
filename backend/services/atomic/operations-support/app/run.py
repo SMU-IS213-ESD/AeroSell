@@ -100,6 +100,7 @@ def assign_support():
 		latitude=data["latitude"],
 		status="pending"
 	)
+	db.session.add(staff)  # Update staff availability
 	db.session.add(assignment)
 	db.session.commit()
 	return assignment
@@ -139,13 +140,20 @@ def create_assignment():
 	if not staff:
 		print(f"[Operations-Support] POST /operations-support/assignment - Staff {data['staff_id']} NOT found", flush=True)
 		abort(404, "Staff not found")
+	if not staff.is_available:
+		print(f"[Operations-Support] POST /operations-support/assignment - Staff {data['staff_id']} unavailable", flush=True)
+		abort(409, "Staff is not available")
+	assignment_status = data.get("status", "pending")
 	assignment = Assignment(
 		staff_id=data["staff_id"],
 		drone_id=data["drone_id"],
 		longitude=data["longitude"],
 		latitude=data["latitude"],
-		status=data.get("status", "pending")
+		status=assignment_status
 	)
+	# Any newly created non-done assignment should reserve the staff member.
+	if str(assignment_status).lower() != "done":
+		staff.is_available = False
 	db.session.add(assignment)
 	db.session.commit()
 	print(f"[Operations-Support] POST /operations-support/assignment - Created assignment {assignment.id}: Staff {data['staff_id']} → Drone {data['drone_id']}", flush=True)
@@ -182,9 +190,16 @@ def update_assignment(assignment_id):
 	if not assignment:
 		abort(404, "Assignment not found")
 	data = request.get_json(silent=True)
+	old_status = (assignment.status or "").lower()
 	for field in ["staff_id", "drone_id", "longitude", "latitude", "status"]:
 		if field in data:
 			setattr(assignment, field, data[field])
+	new_status = (assignment.status or "").lower()
+	if assignment.staff and old_status != new_status:
+		if new_status == "done":
+			assignment.staff.is_available = True
+		else:
+			assignment.staff.is_available = False
 	db.session.commit()
 	return assignment
 
@@ -298,6 +313,7 @@ if __name__ == "__main__":
 	# Optional: create tables if not exist (for dev/demo)
 	with app.app_context():
 		# Create tables
+		db.drop_all()
 		db.create_all()
 		# Insert initial support staff if table is empty
 		if SupportStaff.query.count() == 0:
