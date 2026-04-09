@@ -62,7 +62,7 @@ const submit = async () => {
     if (token) setAuth(token);
 
     const redirectPath =
-      typeof route.query.redirect === "string" ? route.query.redirect : "/book";
+      typeof route.query.redirect === "string" ? route.query.redirect : "/status";
     router.push(redirectPath);
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err);

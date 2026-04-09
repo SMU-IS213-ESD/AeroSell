@@ -14,6 +14,10 @@ const errorMessage = ref("");
 const isLoadingPickupPoints = ref(true);
 
 const pickupPoints = ref([]);
+const selectedPointIds = reactive({
+  fromId: "",
+  toId: "",
+});
 
 // Internal state for selected pickup points with their coordinates
 const selectedPoints = reactive({
@@ -37,55 +41,60 @@ const fetchPickupPoints = async () => {
     const response = await flightPlanningAPI.getPickupPoints();
     if (response.ok) {
       pickupPoints.value = await response.json();
+      if (!Array.isArray(pickupPoints.value) || pickupPoints.value.length === 0) {
+        errorMessage.value =
+          "No pickup points are available right now. Please try again later.";
+      }
       // If booking already has locations, find matching points
       if (booking.fromLocation) {
         const fromPoint = pickupPoints.value.find(
           (p) => p.name === booking.fromLocation,
         );
-        if (fromPoint) selectedPoints.fromPoint = fromPoint;
+        if (fromPoint) {
+          selectedPoints.fromPoint = fromPoint;
+          selectedPointIds.fromId = fromPoint.id;
+        }
       }
       if (booking.toLocation) {
         const toPoint = pickupPoints.value.find(
           (p) => p.name === booking.toLocation,
         );
-        if (toPoint) selectedPoints.toPoint = toPoint;
+        if (toPoint) {
+          selectedPoints.toPoint = toPoint;
+          selectedPointIds.toId = toPoint.id;
+        }
       }
     } else {
+      errorMessage.value =
+        "Unable to load pickup points. Please refresh and try again.";
       console.error("Failed to fetch pickup points");
     }
   } catch (error) {
+    errorMessage.value =
+      "Unable to load pickup points. Please refresh and try again.";
     console.error("Error fetching pickup points:", error);
   } finally {
     isLoadingPickupPoints.value = false;
   }
 };
 
-// Handle pickup point selection
-const handleFromLocationChange = (event) => {
-  const pointId = parseInt(event.target.value);
-  const point = pointId
-    ? pickupPoints.value.find((p) => p.id === pointId)
-    : null;
-  selectedPoints.fromPoint = point;
-  if (point) {
-    booking.fromLocation = point.name;
-  } else {
-    booking.fromLocation = "";
-  }
-};
+watch(
+  () => selectedPointIds.fromId,
+  (pointId) => {
+    const point = pickupPoints.value.find((p) => p.id === pointId) || null;
+    selectedPoints.fromPoint = point;
+    booking.fromLocation = point ? point.name : "";
+  },
+);
 
-const handleToLocationChange = (event) => {
-  const pointId = parseInt(event.target.value);
-  const point = pointId
-    ? pickupPoints.value.find((p) => p.id === pointId)
-    : null;
-  selectedPoints.toPoint = point;
-  if (point) {
-    booking.toLocation = point.name;
-  } else {
-    booking.toLocation = "";
-  }
-};
+watch(
+  () => selectedPointIds.toId,
+  (pointId) => {
+    const point = pickupPoints.value.find((p) => p.id === pointId) || null;
+    selectedPoints.toPoint = point;
+    booking.toLocation = point ? point.name : "";
+  },
+);
 
 // Load pickup points on component mount
 onMounted(() => {
@@ -93,6 +102,8 @@ onMounted(() => {
 });
 
 const submit = async () => {
+  if (isSubmitting.value) return;
+
   isSubmitting.value = true;
   errorMessage.value = "";
 
@@ -100,6 +111,12 @@ const submit = async () => {
     // Validate that pickup points are selected
     if (!selectedPoints.fromPoint || !selectedPoints.toPoint) {
       errorMessage.value = "Please select valid From and To locations";
+      isSubmitting.value = false;
+      return;
+    }
+
+    if (selectedPoints.fromPoint.id === selectedPoints.toPoint.id) {
+      errorMessage.value = "From and To locations must be different";
       isSubmitting.value = false;
       return;
     }
@@ -217,9 +234,8 @@ const submit = async () => {
       <label>
         From Location
         <select
+          v-model="selectedPointIds.fromId"
           :disabled="isLoadingPickupPoints"
-          @change="handleFromLocationChange"
-          :value="selectedPoints.fromPoint?.id || ''"
           required
         >
           <option value="" disabled>
@@ -241,9 +257,8 @@ const submit = async () => {
       <label>
         To Location
         <select
+          v-model="selectedPointIds.toId"
           :disabled="isLoadingPickupPoints"
-          @change="handleToLocationChange"
-          :value="selectedPoints.toPoint?.id || ''"
           required
         >
           <option value="" disabled>
@@ -309,8 +324,9 @@ const submit = async () => {
         <input v-model="booking.priority" type="checkbox" />
         Priority route (faster but premium)
       </label>
-      <button class="btn btn-primary wide" type="submit">
-        Continue to Stripe Payment
+      <p v-if="errorMessage" class="warn wide">{{ errorMessage }}</p>
+      <button class="btn btn-primary wide" type="submit" :disabled="isSubmitting">
+        {{ isSubmitting ? "Validating booking..." : "Continue to Stripe Payment" }}
       </button>
     </form>
 

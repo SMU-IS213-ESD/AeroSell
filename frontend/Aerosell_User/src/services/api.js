@@ -1,6 +1,6 @@
 import { useAppStore } from '../store/appStore'
 
-const BASE = (import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '')
+const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8880').replace(/\/$/, '')
 
 const defaultHeaders = (token) => {
   const h = { 'Content-Type': 'application/json' }
