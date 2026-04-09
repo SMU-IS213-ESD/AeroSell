@@ -5,12 +5,18 @@ import time
 import threading
 import logging
 import sys
-from flask import Flask, jsonify, request
+from apiflask import APIFlask, Schema, abort
+from apiflask.fields import String, Integer
+from flask import jsonify, request
 import requests
 import pika
 from apscheduler.schedulers.background import BackgroundScheduler
 
-app = Flask(__name__)
+app = APIFlask(
+	__name__,
+	title="Item Delivery Service",
+	version="1.0.0"
+)
 
 # Configure logging so app.logger.info/debug appear on stdout (visible in Docker/container logs)
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -259,9 +265,10 @@ def start_rabbit_consumer():
 	t.start()
 
 
-@app.route("/health", methods=["GET"])
+@app.get("/health")
+@app.doc(tags=["Health"], summary="Service health check")
 def health():
-	return jsonify({"status": "healthy", "service": "item-delivery"}), 200
+	return {"status": "healthy", "service": "item-delivery"}, 200
 
 
 if __name__ == '__main__':

@@ -1,4 +1,6 @@
-from flask import Flask, request, jsonify
+from apiflask import APIFlask, Schema, abort
+from apiflask.fields import Integer, String, DateTime, List, Float
+from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 import os
@@ -6,8 +8,29 @@ from datetime import datetime
 import pika
 import json
 import threading
+from typing import List as ListType
 
-app = Flask(__name__)
+# Schemas for API documentation
+class OrderOut(Schema):
+	order_id = Integer()
+	user_id = String()
+	pickup_location = String()
+	dropoff_location = String()
+	estimated_pickup_time = DateTime()
+	estimated_arrival_time = DateTime()
+	final_arrival_time = DateTime()
+	status = String()
+	drone_id = Integer()
+	pickup_pin = String()
+	insurance_id = String()
+	created = DateTime()
+	modified = DateTime()
+
+app = APIFlask(
+	__name__,
+	title="Order Service",
+	version="1.0.0"
+)
 
 # --------------------------
 # Database Configuration
@@ -111,18 +134,23 @@ def start_consumer():
 # API Endpoints
 # --------------------------
 
-@app.route("/db-check", methods=["GET"])
+@app.get("/db-check")
+@app.doc(tags=["Health Check"], summary="Database connectivity check")
 def db_check():
-    """Return JSON true if a simple DB query succeeds, otherwise false."""
-    try:
-        result = db.session.execute(text("SELECT 1")).scalar()
-        ok = bool(result)
-        return jsonify(ok), (200 if ok else 500)
-    except Exception:
-        app.logger.exception("Database connectivity check failed")
-        return jsonify(False), 500
+	"""Verify database is reachable"""
+	try:
+		result = db.session.execute(text("SELECT 1")).scalar()
+		ok = bool(result)
+		if not ok:
+			abort(500, "Database unreachable")
+		return {"status": "ok"}, 200
+	except Exception:
+		app.logger.exception("Database connectivity check failed")
+		abort(500, "Database error")
 
-@app.route("/orders")
+@app.get("/orders")
+@app.doc(tags=["Orders"], summary="List all orders")
+@app.output(ListType[OrderOut])
 def get_all():
     # Support optional status filter: /orders?status=CREATED
     status = request.args.get('status')
@@ -153,137 +181,105 @@ def get_all():
 
 @app.route("/order", methods=["POST"])
 def create_order():
-    data = request.json
-    app.logger.info(f"Received order creation request: {data}")
-    import random
-    pickup_pin = str(random.randint(10000000, 99999999))
-    # Parse estimated_pickup_time if provided
-    est_pickup = data.get("estimated_pickup_time")
-    est_pickup_dt = None
-    if est_pickup:
-        try:
-            est_pickup_dt = datetime.fromisoformat(est_pickup.replace('Z', '+00:00'))
-        except Exception:
-            est_pickup_dt = None
-    est_arrival = data.get("estimated_arrival_time")
-    est_arrival_dt = None
-    if est_arrival:
-        try:
-            est_arrival_dt = datetime.fromisoformat(est_arrival.replace('Z', '+00:00'))
-        except Exception:
-            est_arrival_dt = None
-    # Parse final_arrival_time if provided
-    final_arrival = data.get("final_arrival_time")
-    final_arrival_dt = None
-    if final_arrival:
-        try:
-            final_arrival_dt = datetime.fromisoformat(final_arrival.replace('Z', '+00:00'))
-        except Exception:
-            final_arrival_dt = None
+	data = request.json
+	app.logger.info(f"Received order creation request: {data}")
+	import random
+	pickup_pin = str(random.randint(10000000, 99999999))
+	# Parse estimated_pickup_time if provided
+	est_pickup = data.get("estimated_pickup_time")
+	est_pickup_dt = None
+	if est_pickup:
+		try:
+			est_pickup_dt = datetime.fromisoformat(est_pickup.replace('Z', '+00:00'))
+		except Exception:
+			est_pickup_dt = None
+	est_arrival = data.get("estimated_arrival_time")
+	est_arrival_dt = None
+	if est_arrival:
+		try:
+			est_arrival_dt = datetime.fromisoformat(est_arrival.replace('Z', '+00:00'))
+		except Exception:
+			est_arrival_dt = None
+	# Parse final_arrival_time if provided
+	final_arrival = data.get("final_arrival_time")
+	final_arrival_dt = None
+	if final_arrival:
+		try:
+			final_arrival_dt = datetime.fromisoformat(final_arrival.replace('Z', '+00:00'))
+		except Exception:
+			final_arrival_dt = None
 
-    order = Order(
-        user_id=data.get("user_id"),
-        pickup_location=data.get("pickup_location"),
-        dropoff_location=data.get("dropoff_location"),
-        estimated_pickup_time=est_pickup_dt,
-        estimated_arrival_time=est_arrival_dt,
-        final_arrival_time=final_arrival_dt,
-        drone_id=data.get("drone_id") or 0,
-        pickup_pin=pickup_pin,
-        insurance_id=data.get("insurance_id"),  # New field for insurance ID
-        status="CREATED"
-    )
+	order = Order(
+		user_id=data.get("user_id"),
+		pickup_location=data.get("pickup_location"),
+		dropoff_location=data.get("dropoff_location"),
+		estimated_pickup_time=est_pickup_dt,
+		estimated_arrival_time=est_arrival_dt,
+		final_arrival_time=final_arrival_dt,
+		drone_id=data.get("drone_id") or 0,
+		pickup_pin=pickup_pin,
+		insurance_id=data.get("insurance_id"),
+		status="CREATED"
+	)
 
-    try:
-        db.session.add(order)
-        db.session.commit()
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify(
-            {
-                "code": 500,
-                "message": f"Error occurred while creating the order. {str(e)}"
-            }
-        ), 500
-    
-    return jsonify(
-        {
-            "code": 201,
-            "order_id": order.json()
-        }
-    ), 201
+	try:
+		db.session.add(order)
+		db.session.commit()
+	except Exception as e:
+		print(f"Error: {str(e)}")
+		abort(500, f"Error occurred while creating the order. {str(e)}")
+	
+	return order
 
-@app.route("/orders/<int:order_id>", methods=["GET"])
+@app.get("/orders/<int:order_id>")
+@app.doc(tags=["Orders"], summary="Get order by ID")
+@app.output(OrderOut)
 def get_order(order_id):
-    # order = Order.query.get(order_id)
-    order = db.session.scalar(db.select(Order).filter_by(order_id=order_id))
-    if not order:
-        return jsonify({"error": "Order not found"}), 404
-    return jsonify({
-        "order_id": order.order_id,
-        "user_id": order.user_id,
-        "pickup_location": order.pickup_location,
-        "dropoff_location": order.dropoff_location,
-        "estimated_pickup_time": order.estimated_pickup_time.isoformat() if order.estimated_pickup_time else None,
-        "estimated_arrival_time": order.estimated_arrival_time.isoformat() if order.estimated_arrival_time else None,
-        "final_arrival_time": order.final_arrival_time.isoformat() if order.final_arrival_time else None,
-        "status": order.status,
-        "drone_id": order.drone_id,
-        "created": order.created,
-        "modified": order.modified
-    })
+	order = db.session.scalar(db.select(Order).filter_by(order_id=order_id))
+	if not order:
+		abort(404, "Order not found")
+	return order
 
-@app.route("/orders/user/<string:user_id>", methods=["GET"])
+@app.get("/orders/user/<string:user_id>")
+@app.doc(tags=["Orders"], summary="Get all orders for a user")
+@app.output(ListType[OrderOut])
 def get_orders_by_user(user_id):
-    """Get all orders for a specific user"""
-    orders = db.session.scalars(
-        db.select(Order).filter_by(user_id=user_id)
-    ).all()
+	"""Get all orders for a specific user"""
+	orders = db.session.scalars(
+		db.select(Order).filter_by(user_id=user_id)
+	).all()
 
-    if not orders:
-        return jsonify({
-            "code": 404,
-            "message": "No orders found for this user"
-        }), 404
+	if not orders:
+		abort(404, "No orders found for this user")
 
-    return jsonify({
-        "code": 200,
-        "data": {
-            "orders": [order.json() for order in orders]
-        }
-    }), 200
+	return orders
 
-@app.route("/orders/drone/<int:drone_id>", methods=["GET"])
+@app.get("/orders/drone/<int:drone_id>")
+@app.doc(tags=["Orders"], summary="Get orders for a drone")
+@app.output(ListType[OrderOut])
 def get_orders_by_drone(drone_id):
-    """Get orders for a specific drone, optionally filtered by status"""
-    status = request.args.get('status')
-    print(f"[Order Service] GET /orders/drone/{drone_id} - Status filter: {status}", flush=True)
-    
-    query = db.select(Order).filter_by(drone_id=drone_id)
-    if status:
-        query = query.filter_by(status=status)
-    
-    orders = db.session.scalars(query).all()
-    print(f"[Order Service] Found {len(orders)} orders for drone {drone_id}", flush=True)
-    
-    if not orders:
-        print(f"[Order Service] No orders found for drone {drone_id}", flush=True)
-        return jsonify({
-            "code": 404,
-            "message": f"No orders found for drone {drone_id}"
-        }), 404
-    
-    for order in orders:
-        print(f"[Order Service]   - Order {order.order_id}: user={order.user_id}, status={order.status}", flush=True)
-    
-    return jsonify({
-        "code": 200,
-        "data": {
-            "orders": [order.json() for order in orders]
-        }
-    })
+	"""Get orders for a specific drone, optionally filtered by status"""
+	status = request.args.get('status')
+	print(f"[Order Service] GET /orders/drone/{drone_id} - Status filter: {status}", flush=True)
+	
+	query = db.select(Order).filter_by(drone_id=drone_id)
+	if status:
+		query = query.filter_by(status=status)
+	
+	orders = db.session.scalars(query).all()
+	print(f"[Order Service] Found {len(orders)} orders for drone {drone_id}", flush=True)
+	
+	if not orders:
+		print(f"[Order Service] No orders found for drone {drone_id}", flush=True)
+		abort(404, f"No orders found for drone {drone_id}")
+	
+	for order in orders:
+		print(f"[Order Service]   - Order {order.order_id}: user={order.user_id}, status={order.status}", flush=True)
+	
+	return orders
 
 @app.route("/orders/<int:order_id>/status", methods=["PUT", "PATCH"])
+@app.doc(tags=["Orders"], summary="Update order status")
 def update_status(order_id):
     order = Order.query.get(order_id)
     if not order:
@@ -300,38 +296,40 @@ def update_status(order_id):
     # publish_status_event(order.id, order.status)
     return jsonify({"message": "Order updated"})
 
-@app.route("/orders/by-timeslot")
+@app.get("/orders/by-timeslot")
+@app.doc(tags=["Orders"], summary="Get orders by timeslot")
+@app.output(ListType[OrderOut])
 def get_orders_by_timeslot():
-    """Get orders filtered by timeslot parameter"""
-    timeslot = request.args.get('timeslot')
+	"""Get orders filtered by timeslot parameter"""
+	timeslot = request.args.get('timeslot')
 
-    if not timeslot:
-        return jsonify({"error": "timeslot parameter is required"}), 400
+	if not timeslot:
+		abort(400, "timeslot parameter is required")
 
-    try:
-        # Parse the datetime to extract date string
-        # Fix URL-decoded timeslot: replace ' 00:00' with '+00:00' and handle both 'T' and space separators
-        timeslot_clean = timeslot.replace(' 00:00', '+00:00')
+	try:
+		# Parse the datetime to extract date string
+		# Fix URL-decoded timeslot: replace ' 00:00' with '+00:00' and handle both 'T' and space separators
+		timeslot_clean = timeslot.replace(' 00:00', '+00:00')
 
-        if 'T' in timeslot_clean:
-            timeslot_clean = timeslot_clean.replace('Z', '+00:00')
+		if 'T' in timeslot_clean:
+			timeslot_clean = timeslot_clean.replace('Z', '+00:00')
 
-        timeslot_dt = datetime.fromisoformat(timeslot_clean)
-        # Build date range for the day of timeslot
-        start_dt = datetime(timeslot_dt.year, timeslot_dt.month, timeslot_dt.day)
-        end_dt = datetime(timeslot_dt.year, timeslot_dt.month, timeslot_dt.day, 23, 59, 59)
+		timeslot_dt = datetime.fromisoformat(timeslot_clean)
+		# Build date range for the day of timeslot
+		start_dt = datetime(timeslot_dt.year, timeslot_dt.month, timeslot_dt.day)
+		end_dt = datetime(timeslot_dt.year, timeslot_dt.month, timeslot_dt.day, 23, 59, 59)
 
-        orderlist = db.session.scalars(
-            db.select(Order).filter(Order.estimated_pickup_time >= start_dt).filter(Order.estimated_pickup_time <= end_dt)
-        ).all()
+		orderlist = db.session.scalars(
+			db.select(Order).filter(Order.estimated_pickup_time >= start_dt).filter(Order.estimated_pickup_time <= end_dt)
+		).all()
 
-        # Return array directly to match book-drone expectations
-        return jsonify([order.json() for order in orderlist]), 200
+		# Return array directly to match book-drone expectations
+		return orderlist
 
-    except Exception as e:
-        # Log and return generic error for debugging
-        app.logger.error(f"Error filtering orders by timeslot: {str(e)}")
-        return jsonify({"error": f"Error processing request: {str(e)}"}), 400
+	except Exception as e:
+		# Log and return generic error for debugging
+		app.logger.error(f"Error filtering orders by timeslot: {str(e)}")
+		abort(400, f"Error processing request: {str(e)}")
 
 # --------------------------
 # Run App

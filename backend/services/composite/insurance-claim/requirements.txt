@@ -1,4 +1,4 @@
-flask
+apiflask==3.1.0
 requests
 flask-sqlalchemy
 psycopg2-binary
