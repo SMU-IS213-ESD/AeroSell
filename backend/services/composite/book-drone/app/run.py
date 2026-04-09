@@ -1,6 +1,9 @@
 import random
 
-from flask import Flask, request, jsonify
+from apiflask import APIFlask, Schema, abort
+from apiflask.fields import String, Integer, Boolean, Float, DateTime
+from flask import request, jsonify
+from typing import List
 import os
 import requests
 import json
@@ -10,7 +13,23 @@ from datetime import datetime, timedelta
 import math
 import stripe
 
-app = Flask(__name__)
+# Schemas for documentation
+class BookingOut(Schema):
+    id = Integer()
+    booking_id = String()
+    user_id = String()
+    status = String()
+
+class DroneOut(Schema):
+    id = Integer()
+    drone_name = String()
+    status = String()
+
+app = APIFlask(
+    __name__,
+    title="Book-Drone Service",
+    version="1.0.0"
+)
 
 # Service URLs (using Docker network names)
 USER_SERVICE_URL = "http://kong:8000/user"
@@ -353,12 +372,15 @@ def send_notification(user_id, booking_details):
         app.logger.error(f"Error sending notification: {e}")
         return False
 
-@app.route("/health", methods=["GET"])
+@app.get("/health")
+@app.doc(tags=["Health"], summary="Service health check")
 def health_check():
     """Health check endpoint"""
-    return jsonify({"status": "healthy", "service": "book-drone"}), 200
+    return {"status": "healthy", "service": "book-drone"}, 200
 
-@app.route("/book", methods=["POST"])
+@app.post("/book")
+@app.doc(tags=["Bookings"], summary="Book a drone for delivery")
+@app.output(BookingOut, status_code=201)
 def book_drone():
     """Main booking endpoint that orchestrates the entire workflow"""
     try:
@@ -368,7 +390,7 @@ def book_drone():
         required_fields = ['user_id', 'pickup_location', 'dropoff_location', 'timeslot']
         for field in required_fields:
             if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+                abort(400, f'Missing required field: {field}')
 
         user_id = data['user_id']
         pickup_location = data['pickup_location']
@@ -381,14 +403,14 @@ def book_drone():
         # Step 1: Validate user account
         user_info = get_user_info(user_id)
         if not user_info:
-            return jsonify({'error': 'User validation failed or user not found'}), 400
+            abort(400, 'User validation failed or user not found')
 
         app.logger.info("User validation successful")
 
         # Step 2: Get available drones for the timeslot
         available_drones = get_available_drones(timeslot)
         if not available_drones:
-            return jsonify({'error': 'No drones available for the selected timeslot'}), 400
+            abort(400, 'No drones available for the selected timeslot')
 
         # Select the first available drone
         selected_drone = available_drones[0]
@@ -399,7 +421,7 @@ def book_drone():
         # Step 3: Validate route and calculate cost
         route_validation = validate_route_and_calculate_cost(pickup_location, dropoff_location, data.get('pickup_coordinates'), data.get('dropoff_coordinates'), data.get('package_weight_kg', 1), data.get('package_size', 'medium'), data.get('fragile', False), data.get('priority', False))
         if not route_validation:
-            return jsonify({'error': 'Route validation failed'}), 400
+            abort(400, 'Route validation failed')
 
         delivery_cost = route_validation.get('total', 0.0)
         insurance_id = route_validation.get('insurance_id', '')
@@ -409,11 +431,11 @@ def book_drone():
         # Step 4: Process payment
         payment_response = process_payment(user_id, delivery_cost, payment_method)
         if not payment_response:
-            return jsonify({'error': 'Payment failed'}), 400
+            abort(400, 'Payment failed')
 
         # Verify payment was successful before creating order
         if payment_response.get("status") != "succeeded":
-            return jsonify({"error": "Payment must be successful to create order", "payment_status": payment_response.get("status")}), 400
+            abort(400, f"Payment must be successful to create order (payment_status: {payment_response.get('status')})")
 
         payment_id = payment_response.get("payment_id")
         app.logger.info(f"Payment processed successfully. Payment ID: {payment_id}")
@@ -437,7 +459,7 @@ def book_drone():
             timeslot, payment_response, insurance_id
         )
         if not order_data:
-            return jsonify({'error': 'Order creation failed'}), 500
+            abort(500, 'Order creation failed')
 
         order_id = order_data.get('order_id')
 
@@ -466,7 +488,7 @@ def book_drone():
         app.logger.info(f"Booking record created. Booking ID: {booking_id}")
 
         # Return booking confirmation
-        return jsonify({
+        return {
             'success': True,
             'booking_id': booking_id,
             'order_id': order_id,
@@ -475,32 +497,35 @@ def book_drone():
             'amount_paid': delivery_cost,
             'status': 'CONFIRMED',
             'message': 'Booking confirmed successfully'
-        }), 201
+        }
 
     except Exception as e:
         app.logger.error(f"Booking error: {str(e)}")
         return jsonify({'error': f'Booking failed: {str(e)}'}), 500
 
-@app.route("/available-drones", methods=["GET"])
+@app.get("/available-drones")
+@app.doc(tags=["Drones"], summary="Get available drones")
+@app.output(List[DroneOut])
 def get_available_drones_endpoint():
     """Endpoint to check available drones for a specific timeslot"""
     try:
         timeslot_str = request.args.get('timeslot')
         if not timeslot_str:
-            return jsonify({'error': 'timeslot parameter required'}), 400
+            abort(400, 'timeslot parameter required')
 
         timeslot = datetime.fromisoformat(timeslot_str.replace('Z', '+00:00'))
         available_drones = get_available_drones(timeslot)
 
-        return jsonify({
+        return {
             'timeslot': timeslot.isoformat(),
             'available_drones': available_drones,
             'count': len(available_drones)
-        }), 200
+        }, 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        abort(500, str(e))
 
-@app.route("/validate", methods=["POST"])
+@app.post("/validate")
+@app.doc(tags=["Bookings"], summary="Validate booking parameters")
 def validate_booking():
     """Phase 1: Validate user, check available drones, and validate route
 
@@ -513,7 +538,7 @@ def validate_booking():
         required_fields = ['user_id', 'pickup_location', 'dropoff_location', 'timeslot']
         for field in required_fields:
             if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+                abort(400, f'Missing required field: {field}')
 
         user_id = data['user_id']
         pickup_location = data['pickup_location']
@@ -525,14 +550,14 @@ def validate_booking():
         # Step 1: Validate user account
         user_info = get_user_info(user_id)
         if not user_info:
-            return jsonify({'error': 'User validation failed or user not found'}), 400
+            abort(400, 'User validation failed or user not found')
 
         app.logger.info("User validation successful")
 
         # Step 2: Get available drones for the timeslot
         available_drones = get_available_drones(timeslot)
         if not available_drones:
-            return jsonify({'error': 'No drones available for the selected timeslot'}), 400
+            abort(400, 'No drones available for the selected timeslot')
 
         # Select the first available drone
         selected_drone = available_drones[0]
@@ -548,31 +573,32 @@ def validate_booking():
         data.get('fragile', False), data.get('priority', False)
         )
         if not route_validation:
-            return jsonify({'error': 'Route validation failed'}), 400
+            abort(400, 'Route validation failed')
 
         delivery_cost = route_validation.get('total', 0.0)
 
         app.logger.info(f"Route validated. Cost: ${delivery_cost}")
 
         # Return all validation data for payment page
-        return jsonify({
+        return {
             'success': True,
             'user': user_info,
             'selected_drone': selected_drone,
-            'available_drones': available_drones,  # In case user wants to choose different drone
+            'available_drones': available_drones,
             'route_validation': route_validation,
             'pickup_location': pickup_location,
             'dropoff_location': dropoff_location,
             'timeslot': timeslot.isoformat(),
             'delivery_cost': delivery_cost,
             'message': 'Validation successful. Proceed to payment.'
-        }), 200
+        }, 200
 
     except Exception as e:
         app.logger.error(f"Validation error: {str(e)}")
-        return jsonify({'error': f'Validation failed: {str(e)}'}), 500
+        abort(500, f'Validation failed: {str(e)}')
 
-@app.route("/status", methods=["POST"])
+@app.post("/status")
+@app.doc(tags=["Status"], summary="Get delivery status")
 def get_user_status():
     """Fetch delivery status from backend Order Service"""
     try:
@@ -580,7 +606,7 @@ def get_user_status():
         user_id = data.get('user_id')
 
         if not user_id:
-            return jsonify({'error': 'user_id required'}), 400
+            abort(400, 'user_id required')
 
         # Call Order Service to get user's orders
         response = requests.get(
@@ -589,7 +615,7 @@ def get_user_status():
         )
 
         if response.status_code != 200:
-            return jsonify({'error': 'Failed to fetch orders'}), 502
+            abort(502, 'Failed to fetch orders')
 
         all_orders = response.json().get('data', {}).get('orders', [])
 
@@ -647,19 +673,21 @@ def get_user_status():
             }
             status_orders.append(status_order)
 
-        return jsonify({
+        return {
             'success': True,
             "code": 200,
             "data": {
                 'orders': status_orders
             }
-        }), 200
+        }, 200
 
     except Exception as e:
         app.logger.error(f"Status fetch error: {e}")
-        return jsonify({'error': str(e)}), 500
+        abort(500, str(e))
 
-@app.route("/confirm", methods=["POST"])
+@app.post("/confirm")
+@app.doc(tags=["Bookings"], summary="Confirm booking after payment")
+@app.output(BookingOut, status_code=201)
 def confirm_booking():
     """Phase 2: Verify payment and create order after Stripe Elements confirmation
 
@@ -672,7 +700,7 @@ def confirm_booking():
                           'timeslot', 'delivery_cost', 'payment_method']
         for field in required_fields:
             if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+                abort(400, f'Missing required field: {field}')
 
         user_id = data['user_id']
         drone_id = data['drone_id']
@@ -688,17 +716,14 @@ def confirm_booking():
 
         # Verify payment using payment_intent_id from Stripe Elements
         if not payment_intent_id:
-            return jsonify({'error': 'payment_intent_id is required after Stripe Elements confirmation'}), 400
+            abort(400, 'payment_intent_id is required after Stripe Elements confirmation')
 
         verification_result = verify_payment_intent(payment_intent_id)
         if not verification_result:
-            return jsonify({'error': 'Payment verification failed'}), 400
+            abort(400, 'Payment verification failed')
 
         if verification_result.get('status') != 'succeeded':
-            return jsonify({
-                'error': 'Payment must be successful to create order',
-                'payment_status': verification_result.get('status')
-            }), 400
+            abort(400, f"Payment must be successful to create order (status: {verification_result.get('status')})")
 
         payment_id = verification_result.get('payment_id')
 
@@ -754,23 +779,21 @@ def confirm_booking():
         app.logger.info(f"Booking confirmed. Booking ID: {booking_id}")
 
         # Return booking confirmation
-        return jsonify({
-            'success': True,
+        return {
             'booking_id': booking_id,
             'order_id': order_id,
             'payment_id': payment_id,
             'drone_id': drone_id,
-            'amount_paid': delivery_cost,
             'pickup_pin': pickup_pin,
-            'status': 'CONFIRMED',
-            'message': 'Booking confirmed successfully'
-        }), 201
+            'status': 'CONFIRMED'
+        }
 
     except Exception as e:
         app.logger.error(f"Booking confirmation error: {str(e)}")
-        return jsonify({'error': f'Booking confirmation failed: {str(e)}'}), 500
+        abort(500, f'Booking confirmation failed: {str(e)}')
 
-@app.route("/validate-route", methods=["POST"])
+@app.post("/validate-route")
+@app.doc(tags=["Routes"], summary="Validate and estimate route cost")
 def validate_route():
     """Validate a route and get cost estimate"""
     try:
@@ -790,7 +813,8 @@ def validate_route():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route("/webhook", methods=["POST"])
+@app.post("/webhook")
+@app.doc(tags=["Payments"], summary="Stripe webhook handler")
 def stripe_webhook():
     """Handle Stripe webhooks to create orders after payment succeeds."""
     def _get_obj_id(o):
@@ -1016,14 +1040,15 @@ def stripe_webhook():
     return jsonify({"received": True}), 200
 
 
-@app.route("/create-payment-intent", methods=["POST"])
+@app.post("/create-payment-intent")
+@app.doc(tags=["Payments"], summary="Create Stripe PaymentIntent")
 def create_payment_intent():
     """Create a PaymentIntent and return client_secret for Stripe Elements"""
     try:
         data = request.get_json()
 
         if not data or "amount" not in data:
-            return jsonify({"error": "amount is required"}), 400
+            abort(400, "amount is required")
 
         amount = data.get("amount")
         currency = data.get("currency", "SGD")
@@ -1079,8 +1104,10 @@ def create_payment_intent():
         return jsonify({"error": "Failed to create payment intent"}), 502
     except Exception as e:
         app.logger.error(f"Error creating payment intent: {e}")
-        return jsonify({"error": f"Payment intent creation failed: {str(e)}"}), 500
-@app.route("/payments/<int:payment_id>", methods=["GET"])
+        abort(500, f"Payment intent creation failed: {str(e)}")
+
+@app.get("/payments/<int:payment_id>")
+@app.doc(tags=["Payments"], summary="Get payment details")
 def get_payment(payment_id):
     """Get payment details from Payment Service"""
     try:

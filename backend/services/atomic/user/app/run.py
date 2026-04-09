@@ -1,13 +1,29 @@
-from flask import Flask, jsonify
+from apiflask import APIFlask, Schema, abort
+from apiflask.fields import Integer, String, DateTime
+from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 import os
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.exc import IntegrityError
-from flask import request, abort
+from typing import List
 
-app = Flask(__name__)
+# Schemas for API documentation
+class UserOut(Schema):
+	id = Integer()
+	name = String()
+	email = String()
+	role = String()
+	gender = String()
+	phone = String()
+	created_at = DateTime()
+
+app = APIFlask(
+	__name__,
+	title="User Service",
+	version="1.0.0"
+)
 
 db_url = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
@@ -18,20 +34,19 @@ db = SQLAlchemy(app)
 _created_tables = False
 
 
-@app.route("/db-check", methods=["GET"])
+@app.get("/db-check")
+@app.doc(tags=["Health Check"], summary="Database connectivity check")
 def db_check():
-	"""Return JSON true if a simple DB query succeeds, otherwise false.
-
-	Response body is a bare boolean JSON value (true/false) and status
-	code is 200 on success, 500 on failure.
-	"""
+	"""Verify database is reachable"""
 	try:
 		result = db.session.execute(text("SELECT 1")).scalar()
 		ok = bool(result)
-		return jsonify(ok), (200 if ok else 500)
+		if not ok:
+			abort(500, "Database unreachable")
+		return {"status": "ok"}, 200
 	except Exception:
 		app.logger.exception("Database connectivity check failed")
-		return jsonify(False), 500
+		abort(500, "Database error")
 
 
 class User(db.Model):
@@ -77,11 +92,13 @@ def ensure_tables():
 		app.logger.exception("Failed creating database tables")
 
 
-@app.route("/register", methods=["POST"])
+@app.post("/register")
+@app.doc(tags=["Authentication"], summary="Register new user")
+@app.output(UserOut, status_code=201)
 def create_user():
 	data = request.get_json(force=True, silent=True)
 	if not data:
-		return jsonify({"error": "missing JSON body"}), 400
+		abort(400, "missing JSON body")
 	name = data.get("name")
 	email = data.get("email")
 	password = data.get("password")
@@ -89,7 +106,7 @@ def create_user():
 	gender = data.get("gender")
 	phone = data.get("phone")
 	if not name or not email or not password:
-		return jsonify({"error": "name, email and password are required"}), 400
+		abort(400, "name, email and password are required")
 
 	user = User(name=name, email=email, role=role, gender=gender, phone=phone)
 	user.set_password(password)
@@ -98,29 +115,31 @@ def create_user():
 		db.session.commit()
 	except IntegrityError:
 		db.session.rollback()
-		return jsonify({"error": "email already exists"}), 409
+		abort(409, "email already exists")
 	except Exception:
 		db.session.rollback()
 		app.logger.exception("Failed creating user")
-		return jsonify({"error": "internal error"}), 500
-	return jsonify({"success": True, "message": "Account created successfully"}), 201
+		abort(500, "internal error")
+	return user
 
 
-@app.route("/<int:user_id>", methods=["GET"])
+@app.get("/<int:user_id>")
+@app.doc(tags=["Users"], summary="Get user by ID")
+@app.output(UserOut)
 def get_user(user_id: int):
 	user = User.query.get(user_id)
 	if not user:
-		return jsonify({"error": "not found"}), 404
-	out = user.to_dict()
-	out.pop("password_hash", None)
-	return jsonify(out), 200
+		abort(404, "not found")
+	return user
 
 
-@app.route("/<int:user_id>", methods=["PUT"])
+@app.put("/<int:user_id>")
+@app.doc(tags=["Users"], summary="Update user")
+@app.output(UserOut)
 def update_user(user_id: int):
 	user = User.query.get(user_id)
 	if not user:
-		return jsonify({"error": "not found"}), 405
+		abort(404, "not found")
 	data = request.get_json(force=True, silent=True) or {}
 	name = data.get("name")
 	email = data.get("email")
@@ -144,51 +163,50 @@ def update_user(user_id: int):
 		db.session.commit()
 	except IntegrityError:
 		db.session.rollback()
-		return jsonify({"error": "email already exists"}), 409
+		abort(409, "email already exists")
 	except Exception:
 		db.session.rollback()
 		app.logger.exception("Failed updating user")
-		return jsonify({"error": "internal error"}), 500
-	out = user.to_dict()
-	out.pop("password_hash", None)
-	return jsonify(out), 200
+		abort(500, "internal error")
+	return user
 
 
-@app.route("/<int:user_id>", methods=["DELETE"])
+@app.delete("/<int:user_id>")
+@app.doc(tags=["Users"], summary="Delete user")
 def delete_user(user_id: int):
 	user = User.query.get(user_id)
 	if not user:
-		return jsonify({"error": "not found"}), 404
+		abort(404, "not found")
 	try:
 		db.session.delete(user)
 		db.session.commit()
 	except Exception:
 		db.session.rollback()
 		app.logger.exception("Failed deleting user")
-		return jsonify({"error": "internal error"}), 500
-	return jsonify({"deleted": True}), 200
+		abort(500, "internal error")
+	return "", 204
 
 
-@app.route("/login", methods=["POST"])
+@app.post("/login")
+@app.doc(tags=["Authentication"], summary="Login user")
+@app.output(UserOut)
 def validate_user():
 	data = request.get_json(force=True, silent=True)
 	if not data:
-		return jsonify({"error": "missing JSON body"}), 400
+		abort(400, "missing JSON body")
 	email = data.get("email")
 	password = data.get("password")
 	if not email or not password:
-		return jsonify({"error": "email and password are required"}), 400
+		abort(400, "email and password are required")
 
 	user = User.query.filter_by(email=email).first()
 	if not user:
-		return jsonify({"error": "invalid credentials"}), 401
+		abort(401, "invalid credentials")
 
 	if not user.check_password(password):
-		return jsonify({"error": "invalid credentials"}), 401
+		abort(401, "invalid credentials")
 
-	out = user.to_dict()
-	out.pop("password_hash", None)
-	return jsonify(out), 200
+	return user
 
 
 if __name__ == "__main__":

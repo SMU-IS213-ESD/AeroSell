@@ -1,13 +1,18 @@
 import os
-from flask import Flask, jsonify
+from apiflask import APIFlask, abort
+from flask import jsonify
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
 
 def create_app():
-    """Application factory — create and configure the Flask app."""
-    app = Flask(__name__)
+    """Application factory — create and configure the APIFlask app."""
+    app = APIFlask(
+        __name__,
+        title="Flight Planning Service",
+        version="1.0.0"
+    )
     app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -22,9 +27,10 @@ def create_app():
     register_error_handlers(app)
 
     # Health check — lightweight endpoint for liveness probes
-    @app.route("/health")
+    @app.get("/health")
+    @app.doc(tags=["Health"], summary="Service health check")
     def health():
-        return jsonify({"status": "ok"}), 200
+        return {"status": "ok"}, 200
 
     # Create DB tables on startup if they don't exist
     with app.app_context():

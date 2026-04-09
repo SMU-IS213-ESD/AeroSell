@@ -1,10 +1,16 @@
 import os
 import time
-from flask import Flask, request, jsonify
+from apiflask import APIFlask, Schema, abort
+from apiflask.fields import String, Integer, DateTime
+from flask import request, jsonify
 from werkzeug.utils import secure_filename
 from .models import db, Document
 
-app = Flask(__name__)
+app = APIFlask(
+	__name__,
+	title="Document Service",
+	version="1.0.0"
+)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -26,55 +32,63 @@ with app.app_context():
             print(f"Database not ready, retrying in 2 seconds... ({i+1}/5)")
             time.sleep(2)
 
-@app.route('/db-check', methods=['GET'])
+@app.get('/db-check')
+@app.doc(tags=["Health Check"], summary="Database connectivity check")
 def db_check():
-    """Verify database connectivity"""
-    try:
-        db.session.execute(db.text('SELECT 1'))
-        return jsonify(True), 200
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+	"""Verify database is reachable"""
+	try:
+		db.session.execute(db.text('SELECT 1'))
+		return {"status": "ok"}, 200
+	except Exception as e:
+		app.logger.exception("DB check failed")
+		abort(500, str(e))
 
-@app.route('/upload', methods=['POST'])
+@app.post('/upload')
+@app.doc(tags=["Documents"], summary="Upload document/evidence")
+@app.output(DocumentOut, status_code=201)
 def upload_file():
-    """
-    Handle insurance claim evidence upload
-    Requires: 'file' (MultipartFile) and 'order_id' (Form Data)
-    """
-    if 'file' not in request.files or 'order_id' not in request.form:
-        return jsonify({"error": "Missing file or order_id"}), 400
-    
-    file = request.files['file']
-    order_id = request.form['order_id']
+	"""
+	Handle insurance claim evidence upload
+	Requires: 'file' (MultipartFile) and 'order_id' (Form Data)
+	"""
+	if 'file' not in request.files or 'order_id' not in request.form:
+		abort(400, "Missing file or order_id")
+	
+	file = request.files['file']
+	order_id = request.form['order_id']
 
-    if file.filename == '':
-        return jsonify({"error": "No file selected"}), 400
+	if file.filename == '':
+		abort(400, "No file selected")
 
-    if file:
-        original_filename = secure_filename(file.filename)
-        unique_name = f"{order_id}_{int(time.time())}_{original_filename}"
-        save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-        
-        file.save(save_path)
+	if file:
+		original_filename = secure_filename(file.filename)
+		unique_name = f"{order_id}_{int(time.time())}_{original_filename}"
+		save_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+		
+		file.save(save_path)
 
-        new_doc = Document(
-            order_id=order_id,
-            file_name=original_filename,
-            file_path=save_path
-        )
-        db.session.add(new_doc)
-        db.session.commit()
+		new_doc = Document(
+			order_id=order_id,
+			file_name=original_filename,
+			file_path=save_path
+		)
+		db.session.add(new_doc)
+		db.session.commit()
 
-        return jsonify({
-            "message": "Upload successful",
-            "document": new_doc.to_dict()
-        }), 201
+		return {
+			"filename": original_filename,
+			"order_id": order_id,
+			"file_path": save_path
+		}
 
-@app.route('/documents/<order_id>', methods=['GET'])
+@app.get('/documents/<order_id>')
+@app.doc(tags=["Documents"], summary="Get documents for an order")
+@app.output(List[DocumentOut])
 def get_documents_by_order(order_id):
-    """Fetch all document records associated with a specific order"""
-    docs = Document.query.filter_by(order_id=order_id).all()
-    return jsonify([d.to_dict() for d in docs]), 200
+	"""Fetch all document records associated with a specific order"""
+	docs = Document.query.filter_by(order_id=order_id).all()
+	return docs
 
 if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8001)
     app.run(host='0.0.0.0', port=8001)

@@ -1,15 +1,30 @@
-from flask import Flask, request, jsonify
+from apiflask import APIFlask, Schema, abort
+from apiflask.fields import String, Boolean
+from flask import request, jsonify
 import requests
 import os
 
-app = Flask(__name__)
+app = APIFlask(
+    __name__,
+    title="Insurance Claim Service",
+    version="1.0.0"
+)
 
 USER_SVC = os.environ.get("USER_SVC", "http://user:8008")
 ORDER_SVC = os.environ.get("ORDER_SVC", "http://order:8006")
 DOC_SVC = os.environ.get("DOC_SVC", "http://document:8001")
 NOTIF_SVC = os.environ.get("NOTIF_SVC", "http://notification:8002")
 
-@app.route("/submit", methods=["POST"])
+class ClaimOut(Schema):
+    claim_id = String()
+    user_id = String()
+    order_id = String()
+    status = String()
+    message = String()
+
+@app.post("/submit")
+@app.doc(tags=["Claims"], summary="Submit insurance claim")
+@app.output(ClaimOut, status_code=201)
 def submit_claim():
     try:
         user_id = request.form.get("user_id")
@@ -18,16 +33,16 @@ def submit_claim():
         evidence_file = request.files.get("file")
 
         if not all([user_id, order_id, evidence_file]):
-            return jsonify({"error": "Missing user_id, order_id, or evidence file"}), 400
+            abort(400, "Missing user_id, order_id, or evidence file")
 
         user_resp = requests.get(f"{USER_SVC}/{user_id}")
         if user_resp.status_code != 200:
-            return jsonify({"error": "Invalid user identity"}), 401
+            abort(401, "Invalid user identity")
         user_info = user_resp.json()
 
         order_resp = requests.get(f"{ORDER_SVC}/orders/{order_id}")
         if order_resp.status_code != 200:
-            return jsonify({"error": "Order not found"}), 404
+            abort(404, "Order not found")
         
         order_data = order_resp.json()
 
@@ -36,7 +51,7 @@ def submit_claim():
         doc_resp = requests.post(f"{DOC_SVC}/upload", files=doc_files, data=doc_data)
         
         if doc_resp.status_code != 201:
-            return jsonify({"error": "Failed to store evidence via Document Service"}), 500
+            abort(500, "Failed to store evidence via Document Service")
         
         stored_evidence_path = doc_resp.json().get("file_path")
 
