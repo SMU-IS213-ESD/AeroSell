@@ -20,7 +20,19 @@ const cardElement = ref(null);
 // Get validation data from state
 const validationData = computed(() => state.validationData || {});
 const deliveryCost = computed(() => validationData.value.delivery_cost || 0);
-const selectedDrone = computed(() => validationData.value.selected_drone || {});
+const selectedDrone = computed(
+  () =>
+    validationData.value.selectedDrone ||
+    validationData.value.selected_drone ||
+    {},
+);
+const selectedDroneId = computed(
+  () =>
+    selectedDrone.value.id ||
+    selectedDrone.value.drone_id ||
+    validationData.value.drone_id ||
+    null,
+);
 const canPay = computed(() =>
   Boolean(validationData.value.user_id && validationData.value.delivery_cost),
 );
@@ -274,7 +286,7 @@ onMounted(async () => {
       </div>
       <div class="detail-row">
         <p><strong>Drone:</strong></p>
-        <p>Drone {{ selectedDrone.id || "N/A" }}</p>
+        <p>Drone {{ selectedDroneId || "N/A" }}</p>
       </div>
       <div class="detail-row">
         <p><strong>Weight:</strong></p>
