@@ -302,9 +302,9 @@ if __name__ == "__main__":
 		# Insert initial support staff if table is empty
 		if SupportStaff.query.count() == 0:
 			staff_list = [
-				SupportStaff(name="Alice", email="alice@operations-support.com"),
-				SupportStaff(name="Bob", email="bob@operations-support.com"),
-				SupportStaff(name="Charlie", email="charlie@operations-support.com"),
+				SupportStaff(name="Alice", email="staff1@alwmail.site"),
+				SupportStaff(name="Bob", email="staff2@alwmail.site"),
+				
 			]
 			db.session.add_all(staff_list)
 			db.session.commit()
