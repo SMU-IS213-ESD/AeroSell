@@ -152,7 +152,7 @@ const pay = async () => {
     };
 
     // Update payment in store
-    completeStripePayment(orderDetails.id, orderDetails.pickup_pin);
+    completeStripePayment(orderDetails.order_id, orderDetails.pickup_pin);
 
     // Navigate to confirmation page
     router.push("/confirmation");

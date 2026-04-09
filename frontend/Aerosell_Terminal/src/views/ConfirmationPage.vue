@@ -26,10 +26,6 @@ if (!hasConfirmation.value) {
       Tracking Code:
       <strong>{{ state.delivery.trackingCode }}</strong>
     </p>
-    <p>
-      Scheduled pickup: {{ state.booking.pickupDate }} at
-      {{ state.booking.pickupTime }}
-    </p>
     <div class="cta-row">
       <RouterLink class="btn btn-primary" to="/status"
         >Check Delivery Status</RouterLink
