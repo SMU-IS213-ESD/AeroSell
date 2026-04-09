@@ -84,7 +84,7 @@ class OrderInfoSchema(Schema):
 	pickup_location = String(required=True)
 	dropoff_location = String(required=True)
 	estimated_pickup_time = String(required=False)
-	user_id = String(required=True)
+	order_id = String(required=True)
 
 
 def publish_landing_event(drone_id, order_info):
@@ -109,7 +109,7 @@ def publish_landing_event(drone_id, order_info):
 			'pickup_location': order_info.get('pickup_location'),
 			'dropoff_location': order_info.get('dropoff_location'),
 			'estimated_pickup_time': order_info.get('estimated_pickup_time'),
-			'user_id': order_info.get('user_id'),
+			'order_id': order_info.get('order_id'),
 		}
 		channel.basic_publish(
 			exchange=exchange,
@@ -202,11 +202,8 @@ def simulate_error():
 def activate_drone(json_data, drone_id):
 	order_info = json_data
 	
-	duration = order_info.get('duration', 10)
-	print(f"Drone {drone_id} activated. Starting flight simulation for {duration} seconds.", flush=True)
-	
 	# Spawn background thread to simulate flight
-	thread = threading.Thread(target=drone_flight_simulator, args=(drone_id, order_info, duration))
+	thread = threading.Thread(target=drone_flight_simulator, args=(drone_id, order_info))
 	thread.daemon = True
 	thread.start()
 	

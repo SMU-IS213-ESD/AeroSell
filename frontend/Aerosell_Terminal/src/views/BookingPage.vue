@@ -211,7 +211,8 @@ const submit = async () => {
       </label>
       <label>
         Pickup Time
-        <input v-model="booking.pickupTime" type="time" step="1800" required />
+        <!-- <input v-model="booking.pickupTime" type="time" step="1800" required /> -->
+        <input v-model="booking.pickupTime" type="time" required />
       </label>
       <label>
         From Location

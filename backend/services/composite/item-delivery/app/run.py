@@ -144,11 +144,12 @@ def get_drone_details(drone_id):
 
 def dispatch_drone(booking: dict, drone: dict):
 	"""Send booking + route to drone service to initiate dispatch. Returns mission_id or None."""
+	app.logger.info(f"Dispatching drone for order {booking}")
 	try:
 		payload = {
 			"pickup_location": booking.get("pickup_location"),
 			"dropoff_location": booking.get("dropoff_location"),
-			"user_id": booking.get("user_id"),
+			"order_id": str(booking.get("order_id")),
 			"estimated_pickup_time": booking.get("estimated_pickup_time")
 		}
 		app.logger.info(f"Dispatching drone for order {drone}")
@@ -229,7 +230,7 @@ def process_confirmed_bookings():
 def start_scheduler():
 	scheduler = BackgroundScheduler()
 	#scheduler.add_job(process_confirmed_bookings, 'interval', minutes=30, next_run_time=None)
-	scheduler.add_job(process_confirmed_bookings, 'interval', seconds=20)
+	scheduler.add_job(process_confirmed_bookings, 'interval', seconds=30)
 	scheduler.start()
 	#app.logger.info("Scheduler started: will run delivery check every 30 minutes")
 
@@ -312,6 +313,7 @@ def start_flight_update_consumer():
 
 @app.get("/health")
 @app.doc(tags=["Health"], summary="Service health check")
+# @app.route("/health", methods=["GET"])
 def health():
 	return {"status": "healthy", "service": "item-delivery"}, 200
 

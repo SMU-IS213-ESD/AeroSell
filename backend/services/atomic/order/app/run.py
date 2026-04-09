@@ -163,7 +163,6 @@ def db_check():
 
 @app.get("/orders")
 @app.doc(tags=["Orders"], summary="List all orders")
-@app.output(ListType[OrderOut])
 def get_all():
 	# Support optional status filter: /orders?status=CREATED
 	status = request.args.get('status')
