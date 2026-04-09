@@ -202,6 +202,19 @@ services:
     environment:
       - RABBITMQ_URL=${RABBITMQ_URL}
 
+  email-relay:
+    build: ./services/atomic/email-relay
+    networks:
+      - kong-net
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - NOTIFICATIONS_QUEUE=notifications
+      - OUTSYSTEM_ENDPOINT=${OUTSYSTEM_ENDPOINT}
+      - OUTSYSTEM_TIMEOUT_SECONDS=10
+      - RELAY_MAX_RETRIES=5
+      - RELAY_BACKOFF_SECONDS=2
+      - RELAY_LOG_PAYLOAD=false
+
 # composite services
   anomaly-manager:
     build: ./services/composite/anomaly-manager
