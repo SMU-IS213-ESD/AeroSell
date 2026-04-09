@@ -21,6 +21,7 @@ class PaymentOut(Schema):
 	method = String()
 	status = String()
 	transaction_id = String()
+	order_data = String()
 	created_at = DateTime()
 	updated_at = DateTime()
 

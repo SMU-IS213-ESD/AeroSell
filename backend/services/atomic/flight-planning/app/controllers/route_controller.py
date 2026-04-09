@@ -20,9 +20,9 @@ def list_pickup_points():
     return [point.to_dict() for point in points]
 
 
-def validate_route_by_ids_handler():
+def validate_route_by_ids_handler(json_data=None, **kwargs):
     """POST /routes/validate-by-ids — validate using pickup point IDs instead of coordinates."""
-    body = request.get_json(silent=True)
+    body = json_data if isinstance(json_data, dict) else request.get_json(silent=True)
     if not body:
         abort(400, description="Request body must be valid JSON.")
 
@@ -63,7 +63,7 @@ def _parse_coordinate(value, field_name: str) -> float:
         abort(400, description=f"'{field_name}' must be a numeric value.")
 
 
-def validate_route_handler():
+def validate_route_handler(json_data=None, **kwargs):
     """POST /routes/validate — validate a new delivery route.
 
     Expected JSON body:
@@ -75,7 +75,7 @@ def validate_route_handler():
 
     Returns 201 with the validation result on success.
     """
-    body = request.get_json(silent=True)
+    body = json_data if isinstance(json_data, dict) else request.get_json(silent=True)
     if not body:
         abort(400, description="Request body must be valid JSON.")
 
@@ -99,7 +99,7 @@ def validate_route_handler():
     return record.to_dict()
 
 
-def revalidate_route_handler():
+def revalidate_route_handler(json_data=None, **kwargs):
     """POST /routes/revalidate — re-check a previously validated route.
 
     Expected JSON body:
@@ -108,7 +108,7 @@ def revalidate_route_handler():
     Looks up the most recent validation for orderId and repeats it.
     Returns 201 with the new validation result, or 404 if no prior record exists.
     """
-    body = request.get_json(silent=True)
+    body = json_data if isinstance(json_data, dict) else request.get_json(silent=True)
     if not body:
         abort(400, description="Request body must be valid JSON.")
 

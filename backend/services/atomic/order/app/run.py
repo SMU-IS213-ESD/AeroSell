@@ -4,7 +4,7 @@ from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import pika
 import json
 import threading
@@ -99,6 +99,19 @@ def publish_status_event(order_id, status):
     channel.basic_publish(exchange=EXCHANGE_NAME, routing_key="", body=json.dumps(message))
     connection.close()
 
+
+def _parse_iso_datetime(value):
+	"""Parse an ISO-8601 datetime and return a naive UTC datetime."""
+	if not value:
+		return None
+	try:
+		parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+		if parsed.tzinfo is not None:
+			parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+		return parsed
+	except Exception:
+		return None
+
 def start_consumer():
     """Consume anomaly events from RabbitMQ"""
     def callback(ch, method, properties, body):
@@ -152,19 +165,19 @@ def db_check():
 @app.doc(tags=["Orders"], summary="List all orders")
 @app.output(ListType[OrderOut])
 def get_all():
-    # Support optional status filter: /orders?status=CREATED
-    status = request.args.get('status')
-    if status:
-        orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
-        if orders:
-            return [order.json() for order in orders]
-        abort(404, "There are no orders with that status.")
+	# Support optional status filter: /orders?status=CREATED
+	status = request.args.get('status')
+	if status:
+		orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
+		if orders:
+			return orders
+		abort(404, "There are no orders with that status.")
 
-    orderlist = db.session.scalars(db.select(Order)).all()
-    if len(orderlist):
-        return [order.json() for order in orderlist]
+	orderlist = db.session.scalars(db.select(Order)).all()
+	if len(orderlist):
+		return orderlist
 
-    abort(404, "There are no orders.")
+	abort(404, "There are no orders.")
 
 @app.post("/order")
 @app.doc(tags=["Orders"], summary="Create a new order")
@@ -175,28 +188,10 @@ def create_order():
 	import random
 	pickup_pin = str(random.randint(10000000, 99999999))
 	# Parse estimated_pickup_time if provided
-	est_pickup = data.get("estimated_pickup_time")
-	est_pickup_dt = None
-	if est_pickup:
-		try:
-			est_pickup_dt = datetime.fromisoformat(est_pickup.replace('Z', '+00:00'))
-		except Exception:
-			est_pickup_dt = None
-	est_arrival = data.get("estimated_arrival_time")
-	est_arrival_dt = None
-	if est_arrival:
-		try:
-			est_arrival_dt = datetime.fromisoformat(est_arrival.replace('Z', '+00:00'))
-		except Exception:
-			est_arrival_dt = None
+	est_pickup_dt = _parse_iso_datetime(data.get("estimated_pickup_time"))
+	est_arrival_dt = _parse_iso_datetime(data.get("estimated_arrival_time"))
 	# Parse final_arrival_time if provided
-	final_arrival = data.get("final_arrival_time")
-	final_arrival_dt = None
-	if final_arrival:
-		try:
-			final_arrival_dt = datetime.fromisoformat(final_arrival.replace('Z', '+00:00'))
-		except Exception:
-			final_arrival_dt = None
+	final_arrival_dt = _parse_iso_datetime(data.get("final_arrival_time"))
 
 	order = Order(
 		user_id=data.get("user_id"),
@@ -218,7 +213,7 @@ def create_order():
 		print(f"Error: {str(e)}")
 		abort(500, f"Error occurred while creating the order. {str(e)}")
 	
-	return order.json()
+	return order
 
 @app.get("/orders/<int:order_id>")
 @app.doc(tags=["Orders"], summary="Get order by ID")

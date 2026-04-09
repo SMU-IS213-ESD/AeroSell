@@ -1,9 +1,10 @@
 import random
 
 from apiflask import APIFlask, Schema, abort
-from apiflask.fields import String, Integer, Boolean, Float, DateTime
-from flask import request
-from typing import List
+from apiflask.fields import String, Integer, Boolean, Float, DateTime, List as SchemaList, Nested, Dict
+from marshmallow import validate
+from flask import request, jsonify
+from typing import List as TypingList
 import os
 import requests
 import json
@@ -24,6 +25,67 @@ class DroneOut(Schema):
     id = Integer()
     drone_name = String()
     status = String()
+
+class RouteSchema(Schema):
+    pickup_location = String(required=True)
+    dropoff_location = String(required=True)
+
+class BookingIn(Schema):
+    user_id = Integer(required=True)
+    pickup_location = String(required=True)
+    dropoff_location = String(required=True)
+    # DateTime field automatically handles ISO format parsing
+    timeslot = DateTime(required=True) 
+    
+    # Optional fields with defaults
+    payment_method = String(load_default='stripe')
+    package_weight_kg = Float(load_default=1.0)
+    package_size = String(load_default='medium')
+    fragile = Boolean(load_default=False)
+    priority = Boolean(load_default=False)
+    
+    pickup_coordinates = Dict()
+    dropoff_coordinates = Dict()
+    pickup_point_id = String(load_default="")
+    dropoff_point_id = String(load_default="")
+
+class StatusIn(Schema):
+    user_id = Integer(required=True)
+
+class MilestoneOut(Schema):
+    key = String()
+    label = String()
+    details = String()
+    complete = Boolean()
+    reachedAt = String()
+
+class OrderStatusOut(Schema):
+    order_id = String()
+    user_id = String()
+    pickup_location = String()
+    dropoff_location = String()
+    status = String()
+    created = String()
+    pickup_pin = String()
+    milestones = SchemaList(Nested(MilestoneOut))
+
+class PaymentDetailsIn(Schema):
+    payment_intent_id = String(required=True)
+
+class BookingConfirmIn(Schema):
+    user_id = Integer(required=True)
+    drone_id = String(required=True)
+    pickup_location = String(required=True)
+    dropoff_location = String(required=True)
+    timeslot = DateTime(required=True)
+    delivery_cost = Float(required=True)
+    payment_method = String(load_default='stripe')
+    payment_details = Nested(PaymentDetailsIn, required=True)
+
+class PaymentIntentIn(Schema):
+    amount = Float(required=True)
+    currency = String(load_default="SGD")
+    order_data = Dict()
 
 app = APIFlask(
     __name__,
@@ -377,132 +439,100 @@ def health_check():
 
 @app.post("/book")
 @app.doc(tags=["Bookings"], summary="Book a drone for delivery")
+@app.input(BookingIn)
 @app.output(BookingOut, status_code=201)
-def book_drone():
-    """Main booking endpoint that orchestrates the entire workflow"""
+def book_drone(json_data=None, **kwargs):
+    data = json_data if isinstance(json_data, dict) else kwargs.get("data")
+    if data is None:
+        abort(400, "Request body must be valid JSON")
+
+    app.logger.info(f"Processing booking request for user {data['user_id']}")
+
+    # Step 1: Validate user account
+    user_info = get_user_info(data['user_id'])
+    if not user_info:
+        abort(400, 'User validation failed or user not found')
+
+    # Step 2: Get available drones
+    available_drones = get_available_drones(data['timeslot'])
+    if not available_drones:
+        abort(400, 'No drones available for the selected timeslot')
+
+    drone_id = available_drones[0]['id']
+    app.logger.info(f"Selected drone {drone_id} for booking")
+
+    # Step 3: Validate route and calculate cost
+    # We can pass the 'data' dict or unpack it
+    route_validation = validate_route_and_calculate_cost(
+        data['pickup_location'], 
+        data['dropoff_location'], 
+        data.get('pickup_coordinates'),
+        data.get('dropoff_coordinates'),
+        data['package_weight_kg'],
+        data['package_size'],
+        data['fragile'],
+        data['priority']
+    )
+    
+    if not route_validation:
+        abort(400, 'Route validation failed')
+
+    delivery_cost = route_validation.get('total', 0.0)
+
+    # Step 4: Process payment
+    payment_response = process_payment(data['user_id'], delivery_cost, data['payment_method'])
+    if not payment_response or payment_response.get("status") != "succeeded":
+        abort(400, f"Payment failed: {payment_response.get('status', 'Unknown')}")
+
+    payment_id = payment_response.get("payment_id")
+
+    # Step 5: Get insurance (External service)
+    insurance_id = None
     try:
-        data = request.get_json()
+        r = requests.get(f"{INSURANCE_SERVICE_URL}/buy", timeout=10)
+        if r.status_code == 200:
+            insurance_id = r.json().get("insurance_id")
+    except Exception:
+        app.logger.exception("Insurance service call failed")
 
-        # Validate required fields
-        required_fields = ['user_id', 'pickup_location', 'dropoff_location', 'timeslot']
-        for field in required_fields:
-            if field not in data:
-                abort(400, f'Missing required field: {field}')
+    # Step 6: Create order
+    order_data = create_order_with_payment(
+        data['user_id'], drone_id, data['pickup_location'], 
+        data['dropoff_location'], data['timeslot'], payment_response, insurance_id
+    )
+    
+    if not order_data:
+        abort(500, 'Order creation failed')
 
-        user_id = data['user_id']
-        pickup_location = data['pickup_location']
-        dropoff_location = data['dropoff_location']
-        timeslot = datetime.fromisoformat(data['timeslot'].replace('Z', '+00:00'))
-        payment_method = data.get('payment_method', 'stripe')
+    # Step 7: Finalize & Notify
+    booking_id = str(uuid.uuid4())
+    booking_details = {
+        **data, # Spread input data
+        'booking_id': booking_id,
+        'drone_id': drone_id,
+        'order_id': order_data.get('order_id'),
+        'payment_id': payment_id,
+        'amount_paid': delivery_cost,
+        'insurance_id': insurance_id,
+        'status': 'CONFIRMED'
+    }
+    
+    send_notification(data['user_id'], booking_details)
 
-        app.logger.info(f"Processing booking request for user {user_id}")
-
-        # Step 1: Validate user account
-        user_info = get_user_info(user_id)
-        if not user_info:
-            abort(400, 'User validation failed or user not found')
-
-        app.logger.info("User validation successful")
-
-        # Step 2: Get available drones for the timeslot
-        available_drones = get_available_drones(timeslot)
-        if not available_drones:
-            abort(400, 'No drones available for the selected timeslot')
-
-        # Select the first available drone
-        selected_drone = available_drones[0]
-        drone_id = selected_drone['id']
-
-        app.logger.info(f"Selected drone {drone_id} for booking")
-
-        # Step 3: Validate route and calculate cost
-        route_validation = validate_route_and_calculate_cost(pickup_location, dropoff_location, data.get('pickup_coordinates'), data.get('dropoff_coordinates'), data.get('package_weight_kg', 1), data.get('package_size', 'medium'), data.get('fragile', False), data.get('priority', False))
-        if not route_validation:
-            abort(400, 'Route validation failed')
-
-        delivery_cost = route_validation.get('total', 0.0)
-        insurance_id = route_validation.get('insurance_id', '')
-
-        app.logger.info(f"Route validated. Cost: ${delivery_cost}")
-
-        # Step 4: Process payment
-        payment_response = process_payment(user_id, delivery_cost, payment_method)
-        if not payment_response:
-            abort(400, 'Payment failed')
-
-        # Verify payment was successful before creating order
-        if payment_response.get("status") != "succeeded":
-            abort(400, f"Payment must be successful to create order (payment_status: {payment_response.get('status')})")
-
-        payment_id = payment_response.get("payment_id")
-        app.logger.info(f"Payment processed successfully. Payment ID: {payment_id}")
-
-        # Step 5: Get insurance ID from insurance service
-        insurance_id = None
-        try:
-            insurance_response = requests.get(f"{INSURANCE_SERVICE_URL}/buy", timeout=10)
-            if insurance_response.status_code == 200:
-                insurance_data = insurance_response.json()
-                insurance_id = insurance_data.get("insurance_id")
-                app.logger.info(f"Obtained insurance_id {insurance_id} for booking")
-            else:
-                app.logger.error(f"Failed to get insurance_id: {insurance_response.status_code}")
-        except Exception as e:
-            app.logger.exception("Failed to call insurance service for insurance_id")
-
-        # Step 6: Create order with booking, payment, and insurance details
-        order_data = create_order_with_payment(
-            user_id, drone_id, pickup_location, dropoff_location,
-            timeslot, payment_response, insurance_id
-        )
-        if not order_data:
-            abort(500, 'Order creation failed')
-
-        order_id = order_data.get('order_id')
-
-        app.logger.info(f"Order created successfully. Order ID: {order_id}")
-
-        # Generate a booking ID for tracking
-        booking_id = str(uuid.uuid4())
-
-        booking_details = {
-            'booking_id': booking_id,
-            'user_id': user_id,
-            'drone_id': drone_id,
-            'order_id': order_id,
-            'payment_id': payment_id,
-            'pickup_location': pickup_location,
-            'dropoff_location': dropoff_location,
-            'timeslot': timeslot.isoformat(),
-            'amount_paid': delivery_cost,
-            'insurance_id': insurance_id,
-            'status': 'CONFIRMED'
-        }
-
-        # Step 6: Send notification
-        send_notification(user_id, booking_details)
-
-        app.logger.info(f"Booking record created. Booking ID: {booking_id}")
-
-        # Return booking confirmation
-        return {
-            'success': True,
-            'booking_id': booking_id,
-            'order_id': order_id,
-            'payment_id': payment_id,
-            'drone_id': drone_id,
-            'amount_paid': delivery_cost,
-            'status': 'CONFIRMED',
-            'message': 'Booking confirmed successfully'
-        }
-
-    except Exception as e:
-        app.logger.error(f"Booking error: {str(e)}")
-        abort(500, f"Booking failed: {str(e)}")
+    return {
+        'success': True,
+        'booking_id': booking_id,
+        'order_id': order_data.get('order_id'),
+        'payment_id': payment_id,
+        'drone_id': drone_id,
+        'amount_paid': delivery_cost,
+        'status': 'CONFIRMED',
+        'message': 'Booking confirmed successfully'
+    }
 
 @app.get("/available-drones")
 @app.doc(tags=["Drones"], summary="Get available drones")
-@app.output(List[DroneOut])
+@app.output(TypingList[DroneOut])
 def get_available_drones_endpoint():
     """Endpoint to check available drones for a specific timeslot"""
     try:
@@ -518,292 +548,219 @@ def get_available_drones_endpoint():
 
 @app.post("/validate")
 @app.doc(tags=["Bookings"], summary="Validate booking parameters")
-def validate_booking():
-    """Phase 1: Validate user, check available drones, and validate route
+@app.input(BookingIn)
+def validate_booking(json_data=None, **kwargs):
+    """Phase 1: Validate user, check available drones, and validate route"""
+    data = json_data if isinstance(json_data, dict) else kwargs.get("data")
+    if data is None:
+        abort(400, "Request body must be valid JSON")
+    
+    # APIFlask has already:
+    # 1. Verified all required fields exist
+    # 2. Parsed 'timeslot' into a datetime object
+    # 3. Handled defaults for package_weight_kg, etc.
 
-    Returns data needed for payment page: user info, available drones, route validation with cost
-    """
-    try:
-        data = request.get_json()
+    # Step 1: Validate user account
+    user_info = get_user_info(data['user_id'])
+    if not user_info:
+        abort(400, 'User validation failed or user not found')
 
-        # Required fields
-        required_fields = ['user_id', 'pickup_location', 'dropoff_location', 'timeslot']
-        for field in required_fields:
-            if field not in data:
-                abort(400, f'Missing required field: {field}')
+    # Step 2: Get available drones
+    available_drones = get_available_drones(data['timeslot'])
+    if not available_drones:
+        abort(400, 'No drones available for the selected timeslot')
 
-        user_id = data['user_id']
-        pickup_location = data['pickup_location']
-        dropoff_location = data['dropoff_location']
-        timeslot = datetime.fromisoformat(data['timeslot'].replace('Z', '+00:00'))
+    selected_drone = available_drones[0]
+    
+    # Step 3: Validate route and calculate cost
+    route_validation = validate_route_and_calculate_cost(
+        data['pickup_location'], 
+        data['dropoff_location'],
+        data.get('pickup_coordinates'), 
+        data.get('dropoff_coordinates'),
+        data['package_weight_kg'], 
+        data['package_size'],
+        data['fragile'], 
+        data['priority']
+    )
+    
+    if not route_validation:
+        abort(400, 'Route validation failed')
 
-        app.logger.info(f"Validating booking for user {user_id}")
-
-        # Step 1: Validate user account
-        user_info = get_user_info(user_id)
-        if not user_info:
-            abort(400, 'User validation failed or user not found')
-
-        app.logger.info("User validation successful")
-
-        # Step 2: Get available drones for the timeslot
-        available_drones = get_available_drones(timeslot)
-        if not available_drones:
-            abort(400, 'No drones available for the selected timeslot')
-
-        # Select the first available drone
-        selected_drone = available_drones[0]
-        drone_id = selected_drone['id']
-
-        app.logger.info(f"Selected drone {drone_id} for booking")
-
-        # Step 3: Validate route and calculate cost
-        route_validation = validate_route_and_calculate_cost(
-            pickup_location, dropoff_location,
-            data.get('pickup_coordinates'), data.get('dropoff_coordinates'),
-        data.get('package_weight_kg', 1), data.get('package_size', 'medium'),
-        data.get('fragile', False), data.get('priority', False)
-        )
-        if not route_validation:
-            abort(400, 'Route validation failed')
-
-        delivery_cost = route_validation.get('total', 0.0)
-
-        app.logger.info(f"Route validated. Cost: ${delivery_cost}")
-
-        # Return all validation data for payment page
-        return {
-            'success': True,
-            'user': user_info,
-            'selected_drone': selected_drone,
-            'available_drones': available_drones,
-            'route_validation': route_validation,
-            'pickup_location': pickup_location,
-            'dropoff_location': dropoff_location,
-            'timeslot': timeslot.isoformat(),
-            'delivery_cost': delivery_cost,
-            'message': 'Validation successful. Proceed to payment.'
-        }
-
-    except Exception as e:
-        app.logger.error(f"Validation error: {str(e)}")
-        abort(500, f'Validation failed: {str(e)}')
+    return {
+        'success': True,
+        'user': user_info,
+        'selected_drone': selected_drone,
+        'available_drones': available_drones,
+        'route_validation': route_validation,
+        'pickup_location': data['pickup_location'],
+        'dropoff_location': data['dropoff_location'],
+        'timeslot': data['timeslot'].isoformat(),
+        'delivery_cost': route_validation.get('total', 0.0),
+        'message': 'Validation successful. Proceed to payment.'
+    }
 
 @app.post("/status")
 @app.doc(tags=["Status"], summary="Get delivery status")
-def get_user_status():
+@app.input(StatusIn)
+# No output schema added here for brevity, but you could use @app.output
+def get_user_status(json_data=None, **kwargs):
     """Fetch delivery status from backend Order Service"""
+    data = json_data if isinstance(json_data, dict) else kwargs.get("data")
+    if data is None:
+        abort(400, "Request body must be valid JSON")
+
+    user_id = data['user_id'] # Validated by @app.input
+
+    # Step 1: External API Call
     try:
-        data = request.get_json()
-        user_id = data.get('user_id')
+        response = requests.get(f"{ORDER_SERVICE_URL}/orders", timeout=10)
+        response.raise_for_status() # Automatically handles non-200 codes
+    except requests.RequestException:
+        abort(502, 'Failed to connect to Order Service')
 
-        if not user_id:
-            abort(400, 'user_id required')
+    all_orders = response.json().get('data', {}).get('orders', [])
 
-        # Call Order Service to get user's orders
-        response = requests.get(
-            f"{ORDER_SERVICE_URL}/orders",
-            timeout=10
-        )
+    # Step 2: Filter and Transform
+    status_orders = []
+    # Filter for the user (converting user_id to string to match your original logic)
+    user_orders = [o for o in all_orders if str(o.get('user_id')) == str(user_id)]
 
-        if response.status_code != 200:
-            abort(502, 'Failed to fetch orders')
+    for order in user_orders:
+        status_lower = (order.get('status') or '').lower()
+        created_at = order.get('created', '')
 
-        all_orders = response.json().get('data', {}).get('orders', [])
+        # Define template inside the loop or as a constant
+        milestones_template = [
+            ('scheduled', 'Scheduled', 'Delivery slot reserved'),
+            ('delivering', 'Delivering', 'Package are on the way'),
+            ('delivered', 'Delivered', 'Package has been delivered'),
+            ('completed', 'Completed', 'Delivery completed'),
+        ]
 
-        # Filter orders for this user
-        user_orders = [order for order in all_orders if order.get('user_id') == str(user_id)]
+        milestones = []
+        for key, label, details in milestones_template:
+            # Logic check for completeness
+            is_complete = (
+                (key == 'scheduled') or
+                (status_lower == 'delivering' and key == 'delivering') or
+                (status_lower == 'delivered' and key == 'delivered') or
+                (status_lower in ('completed', 'finished') and key == 'completed')
+            )
 
-        # Transform to match StatusPage.vue format
-        status_orders = []
-        for order in user_orders:
-            status_lower = (order.get('status') or '').lower()
-            created_at = order.get('created', '')
+            milestones.append({
+                'key': key,
+                'label': label,
+                'details': details,
+                'complete': is_complete,
+                'reachedAt': created_at if is_complete else ''
+            })
 
-            # Build milestones and mark complete based on backend status.
-            milestones_template = [
-                {'key': 'scheduled', 'label': 'Scheduled', 'details': 'Delivery slot reserved'},
-                {'key': 'in_delivery', 'label': 'Delivering', 'details': 'Package are on the way to destination'},
-                {'key': 'delivery_delay', 'label': 'Delivering', 'details': 'delivery is delayed, we are working to resolve the issue'},
-                {'key': 'delivered', 'label': 'Delivered', 'details': 'Package has been delivered'},
-                {'key': 'completed', 'label': 'Completed', 'details': 'Delivery completed'},
-            ]
+        status_orders.append({
+            'order_id': order.get('order_id'),
+            'user_id': order.get('user_id'),
+            'pickup_location': order.get('pickup_location'),
+            'dropoff_location': order.get('dropoff_location'),
+            'status': status_lower,
+            'created': order.get('created'),
+            'pickup_pin': order.get('pickup_pin'),
+            'milestones': milestones
+        })
 
-            milestones = []
-            for m in milestones_template:
-                key = m['key']
-                is_complete = False
-
-                # Always mark scheduled as complete (order exists)
-                if key == 'scheduled':
-                    is_complete = True
-                # If backend reports "delivering", mark delivering milestone complete
-                elif status_lower == 'delivering' and key == 'delivering':
-                    is_complete = True
-                elif status_lower == 'delivered' and key == 'delivered':
-                    is_complete = True
-                elif status_lower in ('completed', 'finished') and key == 'completed':
-                    is_complete = True
-
-                milestones.append({
-                    'key': key,
-                    'label': m.get('label', ''),
-                    'details': m.get('details', ''),
-                    'complete': is_complete,
-                    'reachedAt': created_at if is_complete else ''
-                })
-
-            status_order = {
-                'order_id': order.get('order_id'),
-                'user_id': order.get('user_id'),
-                'pickup_location': order.get('pickup_location'),
-                'dropoff_location': order.get('dropoff_location'),
-                'status': status_lower,
-                'created': order.get('created'),
-                'pickup_pin': order.get('pickup_pin'),
-                'milestones': milestones
-            }
-            status_orders.append(status_order)
-
-        return {
-            'success': True,
-            "code": 200,
-            "data": {
-                'orders': status_orders
-            }
+    return {
+        'success': True,
+        'data': {
+            'orders': status_orders
         }
-
-    except Exception as e:
-        app.logger.error(f"Status fetch error: {e}")
-        abort(500, str(e))
+    }
 
 @app.post("/confirm")
 @app.doc(tags=["Bookings"], summary="Confirm booking after payment")
+@app.input(BookingConfirmIn)
 @app.output(BookingOut, status_code=201)
-def confirm_booking():
-    """Phase 2: Verify payment and create order after Stripe Elements confirmation
+def confirm_booking(json_data=None, **kwargs):
+    """Phase 2: Verify payment and create order after Stripe confirmation"""
+    data = json_data if isinstance(json_data, dict) else kwargs.get("data")
+    if data is None:
+        abort(400, "Request body must be valid JSON")
 
-    Expects the validated data from /validate endpoint plus payment_intent_id
-    """
+    # 1. Accessing nested data is now safe and clean
+    payment_intent_id = data['payment_details']['payment_intent_id']
+    user_id = data['user_id']
+
+    app.logger.info(f"Processing booking confirmation for user {user_id}")
+
+    # 2. Verify Payment
+    verification = verify_payment_intent(payment_intent_id)
+    if not verification or verification.get('status') != 'succeeded':
+        status = verification.get('status', 'unknown') if verification else 'failed'
+        abort(400, f"Payment verification failed (status: {status})")
+
+    payment_id = verification.get('payment_id')
+
+    # 3. Insurance Service (External Call)
+    insurance_id = None
     try:
-        data = request.get_json()
+        r = requests.get(f"{INSURANCE_SERVICE_URL}/buy", timeout=10)
+        if r.status_code == 200:
+            insurance_id = r.json().get("insurance_id")
+    except Exception:
+        app.logger.warning("Insurance service unavailable, proceeding without ID")
 
-        required_fields = ['user_id', 'drone_id', 'pickup_location', 'dropoff_location',
-                          'timeslot', 'delivery_cost', 'payment_method']
-        for field in required_fields:
-            if field not in data:
-                abort(400, f'Missing required field: {field}')
+    # 4. Create Order
+    order_data = create_order_with_payment(
+        user_id, data['drone_id'], data['pickup_location'],
+        data['dropoff_location'], data['timeslot'], verification, insurance_id
+    )
+    
+    if not order_data:
+        # In APIFlask, always use abort() for consistency over jsonify, status
+        abort(500, 'Order creation failed')
 
-        user_id = data['user_id']
-        drone_id = data['drone_id']
-        pickup_location = data['pickup_location']
-        dropoff_location = data['dropoff_location']
-        timeslot = datetime.fromisoformat(data['timeslot'].replace('Z', '+00:00'))
-        delivery_cost = data['delivery_cost']
-        payment_method = data.get('payment_method', 'stripe')
-        payment_details = data.get('payment_details', {})
-        payment_intent_id = payment_details.get('payment_intent_id')
+    order_id = order_data.get('order_id')
+    pickup_pin = order_data.get('pickup_pin')
 
-        app.logger.info(f"Processing booking confirmation for user {user_id}")
+    # 5. Finalize & Notify
+    booking_id = str(uuid.uuid4())
+    booking_details = {
+        **data, # Includes user_id, pickup, etc.
+        'booking_id': booking_id,
+        'order_id': order_id,
+        'payment_id': payment_id,
+        'amount_paid': data['delivery_cost'],
+        'pickup_pin': pickup_pin,
+        'status': 'CONFIRMED'
+    }
+    
+    send_notification(user_id, booking_details)
 
-        # Verify payment using payment_intent_id from Stripe Elements
-        if not payment_intent_id:
-            abort(400, 'payment_intent_id is required after Stripe Elements confirmation')
-
-        verification_result = verify_payment_intent(payment_intent_id)
-        if not verification_result:
-            abort(400, 'Payment verification failed')
-
-        if verification_result.get('status') != 'succeeded':
-            abort(400, f"Payment must be successful to create order (status: {verification_result.get('status')})")
-
-        payment_id = verification_result.get('payment_id')
-
-        app.logger.info(f"Payment processed successfully. Payment ID: {payment_id}")
-
-        # Step 5: Get insurance ID from insurance service
-        insurance_id = None
-        app.logger.error(f"DEBUG BOOK: insurance_id extracted = {insurance_id}")
-        try:
-            insurance_response = requests.get(f"{INSURANCE_SERVICE_URL}/buy", timeout=10)
-            app.logger.error(f"DEBUG BOOK: insurance_id extracted = {insurance_id}")
-            if insurance_response.status_code == 200:
-                insurance_data = insurance_response.json()
-                insurance_id = insurance_data.get("insurance_id")
-                app.logger.info(f"Obtained insurance_id {insurance_id} for booking")
-            else:
-                app.logger.error(f"Failed to get insurance_id: {insurance_response.status_code}")
-        except Exception as e:
-            app.logger.exception("Failed to call insurance service for insurance_id")
-
-        # Step 6: Create order with booking, payment, and insurance details
-        order_data = create_order_with_payment(
-            user_id, drone_id, pickup_location, dropoff_location,
-            timeslot, verification_result, insurance_id
-        )
-        if not order_data:
-            return jsonify({'error': 'Order creation failed'}), 500
-
-        order_id = order_data.get('order_id')
-        pickup_pin = order_data.get('pickup_pin')
-
-        app.logger.info(f"Order created successfully. Order ID: {order_id}, Pickup PIN: {pickup_pin}")
-
-        booking_id = str(uuid.uuid4())
-
-        booking_details = {
-            'booking_id': booking_id,
-            'user_id': user_id,
-            'drone_id': drone_id,
-            'order_id': order_id,
-            'payment_id': payment_id,
-            'pickup_location': pickup_location,
-            'dropoff_location': dropoff_location,
-            'timeslot': timeslot.isoformat(),
-            'amount_paid': delivery_cost,
-            'pickup_pin': pickup_pin,
-            'status': 'CONFIRMED'
-        }
-
-        # Step 6: Send notification
-        send_notification(user_id, booking_details)
-
-        app.logger.info(f"Booking confirmed. Booking ID: {booking_id}")
-
-        # Return booking confirmation
-        return {
-            'booking_id': booking_id,
-            'order_id': order_id,
-            'payment_id': payment_id,
-            'drone_id': drone_id,
-            'pickup_pin': pickup_pin,
-            'status': 'CONFIRMED'
-        }
-
-    except Exception as e:
-        app.logger.error(f"Booking confirmation error: {str(e)}")
-        abort(500, f'Booking confirmation failed: {str(e)}')
+    return {
+        'booking_id': booking_id,
+        'order_id': order_id,
+        'payment_id': payment_id,
+        'drone_id': data['drone_id'],
+        'pickup_pin': pickup_pin,
+        'status': 'CONFIRMED'
+    }
 
 @app.post("/validate-route")
 @app.doc(tags=["Routes"], summary="Validate and estimate route cost")
-def validate_route():
+@app.input(RouteSchema)  # Injects validated data as 'data'
+def validate_route(json_data=None, **kwargs):
     """Validate a route and get cost estimate"""
-    try:
-        data = request.get_json()
-        if 'pickup_location' not in data or 'dropoff_location' not in data:
-            abort(400, 'Missing pickup or dropoff location')
+    data = json_data if isinstance(json_data, dict) else kwargs.get("data")
+    if data is None:
+        abort(400, "Request body must be valid JSON")
+    
+    # Logic is now clean and focused
+    result = validate_route_and_calculate_cost(
+        data['pickup_location'],
+        data['dropoff_location']
+    )
 
-        result = validate_route_and_calculate_cost(
-            data['pickup_location'],
-            data['dropoff_location']
-        )
-
-        if not result:
-            abort(400, 'Route validation failed')
-
-        return result
-    except Exception as e:
-        abort(500, str(e))
+    # If business logic fails, use APIFlask's abort
+    if not result:
+        abort(400, 'Route validation failed')
 
 @app.post("/webhook")
 @app.doc(tags=["Payments"], summary="Stripe webhook handler")
@@ -1034,69 +991,54 @@ def stripe_webhook():
 
 @app.post("/create-payment-intent")
 @app.doc(tags=["Payments"], summary="Create Stripe PaymentIntent")
-def create_payment_intent():
+@app.input(PaymentIntentIn)
+def create_payment_intent(json_data=None, **kwargs):
     """Create a PaymentIntent and return client_secret for Stripe Elements"""
+    data = json_data if isinstance(json_data, dict) else kwargs.get("data")
+    if data is None:
+        abort(400, "Request body must be valid JSON")
+    
+    # 1. Prepare payload (amount and currency are pre-validated)
+    temp_order_id = random.randint(1, 1_000_000_000)
+    payload = {
+        "order_id": temp_order_id,
+        "amount": data['amount'],
+        "method": "stripe",
+        "currency": data['currency']
+    }
+    
+    if 'order_data' in data:
+        payload["order_data"] = data['order_data']
+
+    # 2. Call Payment Service to create
     try:
-        data = request.get_json()
-
-        if not data or "amount" not in data:
-            abort(400, "amount is required")
-
-        amount = data.get("amount")
-        currency = data.get("currency", "SGD")
-
-        # Generate temporary order_id
-        import random
-        temp_order_id = random.randint(1, 1000000000)
-
-        payload = {
-            "order_id": temp_order_id,
-            "amount": amount,
-            "method": "stripe",
-            "currency": currency
-        }
-
-        # Add order_data if provided (needed for webhook-driven order creation)
-        order_data = data.get("order_data")
-        if order_data:
-            payload["order_data"] = order_data
-
-        response = requests.post(
-            f"{PAYMENT_SERVICE_URL}/",
-            json=payload,
-            timeout=10
-        )
-
-        if response.status_code in [200, 201]:
-            result = response.json()
-            payment_id = result.get("payment_id")
-
-            # Get payment details to get client_secret and status
-            payment_detail_response = requests.get(
-                f"{PAYMENT_SERVICE_URL}/{payment_id}",
-                timeout=5
-            )
-
-            if payment_detail_response.status_code in [200, 201]:
-                payment_details = payment_detail_response.json()
-                client_secret = payment_details.get("client_secret")
-                transaction_id = payment_details.get("transaction_id")
-
-                if not client_secret:
-                    # Fallback for create response
-                    client_secret = result.get("client_secret")
-
-                return {
-                    "success": True,
-                    "client_secret": client_secret,
-                    "payment_id": payment_id,
-                    "transaction_id": transaction_id
-                }
-
+        resp = requests.post(f"{PAYMENT_SERVICE_URL}/", json=payload, timeout=10)
+        resp.raise_for_status()
+        create_result = resp.json()
+        payment_id = create_result.get("payment_id")
+    except requests.RequestException as e:
+        app.logger.error(f"Payment service create error: {e}")
         abort(502, "Failed to create payment intent")
-    except Exception as e:
-        app.logger.error(f"Error creating payment intent: {e}")
-        abort(500, f"Payment intent creation failed: {str(e)}")
+
+    # 3. Get Details (for client_secret/transaction_id)
+    try:
+        detail_resp = requests.get(f"{PAYMENT_SERVICE_URL}/{payment_id}", timeout=5)
+        detail_resp.raise_for_status()
+        details = detail_resp.json()
+        
+        # Using .get() with a fallback to the create_result for robustness
+        client_secret = details.get("client_secret") or create_result.get("client_secret")
+        transaction_id = details.get("transaction_id")
+
+        return {
+            "success": True,
+            "client_secret": client_secret,
+            "payment_id": payment_id,
+            "transaction_id": transaction_id
+        }
+    except requests.RequestException as e:
+        app.logger.error(f"Payment detail fetch error: {e}")
+        abort(502, "Failed to retrieve payment details")
 
 @app.get("/payments/<int:payment_id>")
 @app.doc(tags=["Payments"], summary="Get payment details")
