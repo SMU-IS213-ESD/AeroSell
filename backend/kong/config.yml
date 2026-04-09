@@ -57,6 +57,7 @@ services:
       - name: weather-route
         paths:
           - /weather
+        strip_path: false
   
   - name: book-drone-service
     url: http://book-drone:8101
