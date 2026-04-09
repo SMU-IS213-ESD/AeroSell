@@ -74,8 +74,8 @@ class Order(db.Model):
             'drone_id': self.drone_id,
             'pickup_pin': self.pickup_pin,
             'insurance_id': self.insurance_id,
-            'created': self.created,
-            'modified': self.modified
+			'created': self.created.isoformat() if self.created else None,
+			'modified': self.modified.isoformat() if self.modified else None
         }
         return dto
 
@@ -169,12 +169,12 @@ def get_all():
 	if status:
 		orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
 		if orders:
-			return orders
+			return [o.json() for o in orders]
 		abort(404, "There are no orders with that status.")
 
 	orderlist = db.session.scalars(db.select(Order)).all()
 	if len(orderlist):
-		return orderlist
+		return [o.json() for o in orderlist]
 
 	abort(404, "There are no orders.")
 
@@ -182,8 +182,14 @@ def get_all():
 @app.doc(tags=["Orders"], summary="Create a new order")
 @app.output(OrderOut, status_code=201)
 def create_order():
-	data = request.json
+	data = request.get_json(silent=True)
+	if not data:
+		abort(400, "missing JSON body")
 	app.logger.info(f"Received order creation request: {data}")
+	if not data.get("user_id"):
+		abort(400, "user_id is required")
+	if data.get("drone_id") is None:
+		abort(400, "drone_id is required")
 	import random
 	pickup_pin = str(random.randint(10000000, 99999999))
 	# Parse estimated_pickup_time if provided
@@ -199,7 +205,7 @@ def create_order():
 		estimated_pickup_time=est_pickup_dt,
 		estimated_arrival_time=est_arrival_dt,
 		final_arrival_time=final_arrival_dt,
-		drone_id=data.get("drone_id") or 0,
+		drone_id=data.get("drone_id"),
 		pickup_pin=pickup_pin,
 		insurance_id=data.get("insurance_id"),
 		status="CREATED"
@@ -264,20 +270,22 @@ def get_orders_by_drone(drone_id):
 @app.patch("/orders/<int:order_id>/status")
 @app.doc(tags=["Orders"], summary="Update order status")
 def update_status(order_id):
-    order = Order.query.get(order_id)
-    if not order:
-        print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
-        abort(404, "Order not found")
-    data = request.json
-    old_status = order.status
-    order.status = data["status"]
-    if "drone_id" in data:
-        order.drone_id = data["drone_id"]
-    db.session.commit()
-    print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
-    # Publish event
-    # publish_status_event(order.id, order.status)
-    return {"message": "Order updated"}
+	order = Order.query.get(order_id)
+	if not order:
+		print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
+		abort(404, "Order not found")
+	data = request.get_json(silent=True) or {}
+	if "status" not in data:
+		abort(400, "status is required")
+	old_status = order.status
+	order.status = data["status"]
+	if "drone_id" in data:
+		order.drone_id = data["drone_id"]
+	db.session.commit()
+	print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
+	# Publish event
+	# publish_status_event(order.id, order.status)
+	return {"message": "Order updated"}
 
 @app.get("/orders/by-timeslot")
 @app.doc(tags=["Orders"], summary="Get orders by timeslot")
