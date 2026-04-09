@@ -92,6 +92,7 @@ const navigateToClaim = (trackingCode) => {
           </li>
         </ul>
         <button
+          v-if="delivery.status !== 'refunded'"
           class="btn btn-secondary"
           @click="navigateToClaim(delivery.trackingCode)"
           style="margin-top: 12px"

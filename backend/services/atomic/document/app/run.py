@@ -2,7 +2,7 @@ import os
 import time
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-from .models import db
+from .models import db, Document
 
 app = Flask(__name__)
 
@@ -77,4 +77,4 @@ def get_documents_by_order(order_id):
     return jsonify([d.to_dict() for d in docs]), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=8001)

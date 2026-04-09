@@ -30,8 +30,6 @@ def submit_claim():
             return jsonify({"error": "Order not found"}), 404
         
         order_data = order_resp.json()
-        if order_data.get("status") != "FAILED":
-            return jsonify({"error": "Order status is not eligible for insurance claim"}), 400
 
         doc_files = {'file': (evidence_file.filename, evidence_file.stream, evidence_file.content_type)}
         doc_data = {'order_id': order_id}
@@ -46,10 +44,13 @@ def submit_claim():
         claim_approved = random.choice([True, False])
 
         status_msg = "APPROVED" if claim_approved else "REJECTED"
-        requests.post(f"{NOTIF_SVC}/notify", json={
-            "user_id": user_id,
-            "message": f"Dear {user_info['name']}, your claim for order {order_id} has been {status_msg}."
-        })
+
+        if claim_approved:
+            requests.patch(
+                f"{ORDER_SVC}/orders/{order_id}/status",
+                json={"status": "REFUNDED"},
+                timeout=5
+            )
 
         return jsonify({
             "status": "success",

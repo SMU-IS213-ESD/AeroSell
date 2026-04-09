@@ -17,6 +17,12 @@ const formData = ref({
   contactPhone: state.user?.phone || ""
 })
 
+const evidenceFile = ref(null)
+
+const handleFileChange = (e) => {
+  evidenceFile.value = e.target.files[0] || null
+}
+
 const errorMessage = ref("")
 const successMessage = ref("")
 const loading = ref(false)
@@ -51,38 +57,44 @@ const submitClaim = async () => {
     return
   }
 
+  if (!evidenceFile.value) {
+    errorMessage.value = "Please upload an evidence file"
+    return
+  }
+
   loading.value = true
   errorMessage.value = ""
   successMessage.value = ""
 
   try {
-    const claimData = {
-      tracking_code: trackingCode,
-      type_of_damage: formData.value.typeOfDamage,
-      severity: formData.value.severity,
-      description: formData.value.description,
-      email: formData.value.contactEmail,
-      phone: formData.value.contactPhone
-    }
+    // Extract numeric order ID from tracking code e.g. "AS-0001" → 1
+    const numericOrderId = parseInt(trackingCode.replace(/^AS-0*/i, ""), 10)
+
+    const payload = new FormData()
+    payload.append("user_id", state.user?.id)
+    payload.append("order_id", numericOrderId)
+    payload.append("description", formData.value.description)
+    payload.append("file", evidenceFile.value)
 
     const response = await fetch("http://localhost:8880/insurance-claim/submit", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(claimData)
+      body: payload
     })
 
     const result = await response.json()
 
     if (response.ok) {
-      successMessage.value = "Claim submitted successfully! You will receive a confirmation email shortly."
-
+      const claimResult = result.claim_result
+      if (claimResult === "APPROVED") {
+        successMessage.value = "Your insurance claim has been APPROVED. Redirecting in 5 seconds..."
+      } else {
+        errorMessage.value = "Your insurance claim has been REJECTED. Redirecting in 5 seconds..."
+      }
       setTimeout(() => {
         router.push("/status")
-      }, 2000)
+      }, 5000)
     } else {
-      errorMessage.value = result.detail || "Failed to submit claim. Please try again."
+      errorMessage.value = result.detail || result.error || "Failed to submit claim. Please try again."
     }
   } catch (error) {
     console.error("Error submitting claim:", error)
@@ -169,6 +181,17 @@ onMounted(() => {
           v-model="formData.contactPhone"
           placeholder="+65 1234 5678"
         >
+      </div>
+
+      <div class="form-row">
+        <label>Evidence File <span class="required">*</span></label>
+        <input
+          type="file"
+          accept="image/*,.pdf"
+          @change="handleFileChange"
+          required
+        >
+        <small style="color: #666; margin-top: 4px; display: block;">Upload a photo or PDF as evidence (required)</small>
       </div>
 
       <div class="form-buttons">
