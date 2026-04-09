@@ -40,15 +40,15 @@ class RouteValidationOut(Schema):
 @routes_bp.doc(tags=["Routes"], summary="Validate a delivery route")
 @routes_bp.input(ValidateRouteIn)
 @routes_bp.output(RouteValidationOut, status_code=201)
-def validate_route():
-    return validate_route_handler()
+def validate_route(json_data=None, **kwargs):
+    return validate_route_handler(json_data=json_data, **kwargs)
 
 @routes_bp.post("/revalidate")
 @routes_bp.doc(tags=["Routes"], summary="Revalidate an existing route")
 @routes_bp.input(RevalidateRouteIn)
 @routes_bp.output(RouteValidationOut)
-def revalidate_route():
-    return revalidate_route_handler()
+def revalidate_route(json_data=None, **kwargs):
+    return revalidate_route_handler(json_data=json_data, **kwargs)
 
 @routes_bp.get("/<string:order_id>")
 @routes_bp.doc(tags=["Routes"], summary="Get route history for an order")

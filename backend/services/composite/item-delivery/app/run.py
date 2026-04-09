@@ -7,7 +7,7 @@ import logging
 import sys
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import String, Integer
-from flask import jsonify, request
+from flask import request
 import requests
 import pika
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -119,16 +119,15 @@ def update_order_status(order_id, status):
 		return False
 	payload = {"status": status}
 	try:
-		resp = requests.put(f"{ORDER_SERVICE_URL}/orders/{order_id}/status", json=payload, timeout=10)
+		resp = requests.patch(f"{ORDER_SERVICE_URL}/orders/{order_id}/status", json=payload, timeout=10)
 		if resp.status_code in (200, 201):
 			app.logger.info(f"Updated order {order_id} -> {status}")
 			return True
-		resp = requests.post(url, json=payload, timeout=10)
-		if resp.status_code in (200, 201):
-			app.logger.info(f"Updated order {order_id} -> {status} via POST")
-			return True
-	except Exception:
-		app.logger.debug(f"Attempt to update order via {url} failed")
+		app.logger.error(
+			f"Order status update returned {resp.status_code}: {resp.text}"
+		)
+	except Exception as e:
+		app.logger.debug(f"Attempt to update order failed: {e}")
 	app.logger.error(f"Failed to update order {order_id} to {status}")
 	return False
 
@@ -165,29 +164,35 @@ def dispatch_drone(booking: dict, drone: dict):
 	return None
 
 
-def poll_mission_and_finalize(order_id):
-	"""Poll drone service for mission status until complete or timeout."""
-	start = time.time()
-	while time.time() - start < timeout_seconds:
-		try:
-			resp = requests.get(f"{DRONE_SERVICE_URL}/missions/{mission_id}", timeout=10)
-			if resp.status_code == 200:
-				status = resp.json().get("status")
-				app.logger.info(f"Mission {mission_id} status: {status}")
-				if status and status.lower() in ("completed", "done", "finished"):
-					# Mark order completed and notify
-					update_order_status(order_id, "COMPLETED")
-					publish_notification({
-						"type": "delivery_completed",
-						"order_id": order_id,
-						"mission_id": mission_id
-					})
-					return True
-		except Exception:
-			app.logger.debug("Failed polling mission status")
-		time.sleep(interval)
-	app.logger.warning(f"Mission {mission_id} did not complete within timeout")
-	return False
+def resolve_order_id_from_landing(payload: dict):
+	"""Resolve order_id from landing payload; fallback to lookup by drone_id."""
+	order_id = payload.get('order_id') or payload.get('order')
+	if order_id:
+		return order_id
+
+	drone_id = payload.get('drone_id')
+	if not drone_id:
+		return None
+
+	try:
+		resp = requests.get(f"{ORDER_SERVICE_URL}/orders/drone/{drone_id}?status=IN_DELIVERY", timeout=10)
+		if resp.status_code != 200:
+			app.logger.warning(f"Could not resolve order for drone {drone_id}: order service returned {resp.status_code}")
+			return None
+
+		data = resp.json()
+		if isinstance(data, list) and data:
+			return data[0].get('order_id')
+		if isinstance(data, dict):
+			orders = data.get('orders')
+			if not orders and isinstance(data.get('data'), dict):
+				orders = data.get('data', {}).get('orders')
+			if isinstance(orders, list) and orders:
+				return orders[0].get('order_id')
+	except Exception:
+		app.logger.exception(f"Failed resolving order_id from drone_id {drone_id}")
+
+	return None
 
 
 def process_confirmed_bookings():
@@ -265,7 +270,6 @@ def start_rabbit_consumer():
 	t.start()
 
 def start_flight_update_consumer():
-	"""Consume `flight_update` events (published by drone sim) and finalize orders."""
 	if not RABBITMQ_URL:
 		return
 
@@ -273,17 +277,24 @@ def start_flight_update_consumer():
 		try:
 			conn = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
 			ch = conn.channel()
+			ch.exchange_declare(exchange='drone', exchange_type='direct', durable=True)
 			ch.queue_declare(queue='flight_update', durable=True)
+			ch.queue_bind(exchange='drone', queue='flight_update', routing_key='flight_update')
 
 			def callback(ch, method, properties, body):
 				try:
 					payload = json.loads(body)
 					if payload.get('event') == 'landed':
-						order_id = payload.get('order_id') or payload.get('order')
-						app.logger.info(f"Received flight_update landed for order {order_id}")
+						order_id = resolve_order_id_from_landing(payload)
+						drone_id = payload.get('drone_id')
+						app.logger.info(f"Received flight_update landed for drone {drone_id}, resolved order {order_id}")
+						if not order_id:
+							app.logger.warning(f"Skipping completion: unable to resolve order_id for landed drone {drone_id}")
+							ch.basic_ack(delivery_tag=method.delivery_tag)
+							return
 						try:
 							update_order_status(order_id, 'COMPLETED')
-							publish_notification({'type': 'delivery_completed', 'order_id': order_id})
+							publish_notification({'type': 'delivery_completed', 'order_id': order_id, 'drone_id': drone_id})
 						except Exception:
 							app.logger.exception(f"Failed to update order {order_id} to COMPLETED")
 				except Exception:
@@ -298,6 +309,7 @@ def start_flight_update_consumer():
 
 	t = threading.Thread(target=_consume, daemon=True)
 	t.start()
+
 
 @app.get("/health")
 @app.doc(tags=["Health"], summary="Service health check")

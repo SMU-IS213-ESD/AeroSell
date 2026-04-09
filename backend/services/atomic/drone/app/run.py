@@ -19,7 +19,7 @@ def wait_for_rabbitmq(max_retries=15, delay=2):
 	raise RuntimeError("RabbitMQ not available after retries")
 from apiflask import APIFlask, Schema, abort
 from apiflask.fields import Integer, String, Float
-from flask import jsonify, request
+from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -320,7 +320,7 @@ def amqp_consumer_thread():
 				except Exception:
 					pass
 
-@app.route("/db-check", methods=["GET"])
+@app.get("/db-check")
 @app.doc(tags=["Health Check"])
 def db_check():
 	"""Return JSON true if a simple DB query succeeds, otherwise false.
@@ -332,10 +332,12 @@ def db_check():
 		# Lightweight check: run a simple SELECT 1
 		result = db.session.execute(text("SELECT 1")).scalar()
 		ok = bool(result)
-		return jsonify(ok), (200 if ok else 500)
+		if not ok:
+			abort(500, "Database check failed")
+		return {"status": "ok"}
 	except Exception:
 		app.logger.exception("Database connectivity check failed")
-		return jsonify(False), 500
+		abort(500, "Database connectivity check failed")
 
 
 # GET /drones/<int:drone_id> - get a single drone by ID (APIFlask style)

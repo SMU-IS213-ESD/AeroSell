@@ -4,7 +4,7 @@ from flask import request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import pika
 import json
 import threading
@@ -99,6 +99,19 @@ def publish_status_event(order_id, status):
     channel.basic_publish(exchange=EXCHANGE_NAME, routing_key="", body=json.dumps(message))
     connection.close()
 
+
+def _parse_iso_datetime(value):
+	"""Parse an ISO-8601 datetime and return a naive UTC datetime."""
+	if not value:
+		return None
+	try:
+		parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+		if parsed.tzinfo is not None:
+			parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+		return parsed
+	except Exception:
+		return None
+
 def start_consumer():
     """Consume anomaly events from RabbitMQ"""
     def callback(ch, method, properties, body):
@@ -143,7 +156,7 @@ def db_check():
 		ok = bool(result)
 		if not ok:
 			abort(500, "Database unreachable")
-		return {"status": "ok"}, 200
+		return {"status": "ok"}
 	except Exception:
 		app.logger.exception("Database connectivity check failed")
 		abort(500, "Database error")
@@ -155,54 +168,29 @@ def get_all():
 	status = request.args.get('status')
 	if status:
 		orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
-		return {
-			"code": 200,
-			"data": {"orders": [order.json() for order in orders]}
-		}, 200
+		if orders:
+			return orders
+		abort(404, "There are no orders with that status.")
 
 	orderlist = db.session.scalars(db.select(Order)).all()
 	if len(orderlist):
-		return {
-			"code": 200,
-			"data": {
-				"orders": [order.json() for order in orderlist]
-			}
-		}, 200
+		return orderlist
 
-	return {
-		"code": 404,
-		"message": "There are no orders."
-	}, 404
+	abort(404, "There are no orders.")
 
-@app.route("/order", methods=["POST"])
+@app.post("/order")
+@app.doc(tags=["Orders"], summary="Create a new order")
+@app.output(OrderOut, status_code=201)
 def create_order():
 	data = request.json
 	app.logger.info(f"Received order creation request: {data}")
 	import random
 	pickup_pin = str(random.randint(10000000, 99999999))
 	# Parse estimated_pickup_time if provided
-	est_pickup = data.get("estimated_pickup_time")
-	est_pickup_dt = None
-	if est_pickup:
-		try:
-			est_pickup_dt = datetime.fromisoformat(est_pickup.replace('Z', '+00:00'))
-		except Exception:
-			est_pickup_dt = None
-	est_arrival = data.get("estimated_arrival_time")
-	est_arrival_dt = None
-	if est_arrival:
-		try:
-			est_arrival_dt = datetime.fromisoformat(est_arrival.replace('Z', '+00:00'))
-		except Exception:
-			est_arrival_dt = None
+	est_pickup_dt = _parse_iso_datetime(data.get("estimated_pickup_time"))
+	est_arrival_dt = _parse_iso_datetime(data.get("estimated_arrival_time"))
 	# Parse final_arrival_time if provided
-	final_arrival = data.get("final_arrival_time")
-	final_arrival_dt = None
-	if final_arrival:
-		try:
-			final_arrival_dt = datetime.fromisoformat(final_arrival.replace('Z', '+00:00'))
-		except Exception:
-			final_arrival_dt = None
+	final_arrival_dt = _parse_iso_datetime(data.get("final_arrival_time"))
 
 	order = Order(
 		user_id=data.get("user_id"),
@@ -273,23 +261,23 @@ def get_orders_by_drone(drone_id):
 	
 	return orders
 
-@app.route("/orders/<int:order_id>/status", methods=["PUT", "PATCH"])
+@app.patch("/orders/<int:order_id>/status")
 @app.doc(tags=["Orders"], summary="Update order status")
 def update_status(order_id):
-	order = Order.query.get(order_id)
-	if not order:
-		print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
-		abort(404, "Order not found")
-	data = request.json
-	old_status = order.status
-	order.status = data["status"]
-	if "drone_id" in data:
-		order.drone_id = data["drone_id"]
-	db.session.commit()
-	print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
-	# Publish event
-	# publish_status_event(order.id, order.status)
-	return {"message": "Order updated"}, 200
+    order = Order.query.get(order_id)
+    if not order:
+        print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
+        abort(404, "Order not found")
+    data = request.json
+    old_status = order.status
+    order.status = data["status"]
+    if "drone_id" in data:
+        order.drone_id = data["drone_id"]
+    db.session.commit()
+    print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
+    # Publish event
+    # publish_status_event(order.id, order.status)
+    return {"message": "Order updated"}
 
 @app.get("/orders/by-timeslot")
 @app.doc(tags=["Orders"], summary="Get orders by timeslot")
