@@ -619,7 +619,13 @@ def get_user_status(json_data=None, **kwargs):
     except requests.RequestException:
         abort(502, 'Failed to connect to Order Service')
 
-    all_orders = response.json().get('data', {}).get('orders', [])
+    raw = response.json()
+    if isinstance(raw, list):
+        all_orders = raw
+    elif isinstance(raw, dict):
+        all_orders = raw.get('orders') or raw.get('data', {}).get('orders', [])
+    else:
+        all_orders = []
 
     # Step 2: Filter and Transform
     status_orders = []
