@@ -230,9 +230,9 @@ class AnomalyOrchestrator:
     def publish_notification(self, notification_type, message, routing_key=None):
         """Publish notification message"""
         try:
-            # Use provided routing_key or default construct
+            # All notifications use the unified routing key.
             if routing_key is None:
-                routing_key = f"notification.{notification_type}"
+                routing_key = "notification"
             
             self.channel.basic_publish(
                 exchange=NOTIFICATION_EXCHANGE,
@@ -314,7 +314,7 @@ class AnomalyOrchestrator:
                         "type": "delivery_delay"
                     }
                     print(f"[Orchestrator] Publishing customer delay notification for order {order_id}", flush=True)
-                    self.publish_notification("customer", customer_notification, routing_key="notification.customer.delay")
+                    self.publish_notification("customer", customer_notification)
             else:
                 print(f"[Orchestrator] No active orders for drone {drone_id} - skipping order updates", flush=True)
             
@@ -379,7 +379,7 @@ class AnomalyOrchestrator:
                     "type": "drone_repair_assignment"
                 }
                 print(f"[Orchestrator] Publishing staff notification for staff {staff_id}", flush=True)
-                self.publish_notification("staff", staff_notification, routing_key="notification.staff.repair")
+                self.publish_notification("staff", staff_notification)
                 
                 # ACK the message
                 ch.basic_ack(delivery_tag=method.delivery_tag)

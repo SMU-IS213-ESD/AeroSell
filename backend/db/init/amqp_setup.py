@@ -5,7 +5,7 @@ AMQP Setup Script for AeroSell Drone Anomaly Recovery System
 This script sets up all necessary exchanges and queues for the drone anomaly orchestration:
 - drone_anomaly exchange (topic) - for publishing drone errors
 - repair_exchange with Dead Letter Exchange (DLX) - for repair request orchestration
-- notification_exchange (topic) - for customer/staff notifications
+- notification_exchange (topic) - for unified notifications
 
 Run this once during system initialization to configure RabbitMQ.
 """
@@ -66,18 +66,11 @@ QUEUES = [
         "routing_key": "repair.retry",
         "durable": True,
     },
-    # Customer notification queue
+    # Unified notifications queue
     {
-        "name": "customer_notification_queue",
+        "name": "notifications",
         "exchange": "notification_exchange",
-        "routing_key": "notification.customer.delay",
-        "durable": True,
-    },
-    # Staff notification queue
-    {
-        "name": "staff_notification_queue",
-        "exchange": "notification_exchange",
-        "routing_key": "notification.staff.repair",
+        "routing_key": "notification",
         "durable": True,
     },
 ]
@@ -176,7 +169,8 @@ def main():
         print("  • drone_anomaly exchange: Publishes drone error events")
         print("  • repair_exchange: Direct queue for repair request orchestration")
         print("  • repair_dlx: Dead letter exchange for retry logic (3s TTL)")
-        print("  • notification_exchange: Topic for customer/staff notifications")
+        print("  • notification_exchange: Topic for unified notifications")
+        print("  • notifications queue: Bound with routing key 'notification'")
         print("=" * 70)
         
     except Exception as e:
