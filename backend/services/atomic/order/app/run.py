@@ -191,7 +191,8 @@ def create_order():
 	if data.get("drone_id") is None:
 		abort(400, "drone_id is required")
 	import random
-	pickup_pin = str(random.randint(10000000, 99999999))
+	# Use pickup_pin from request if provided, otherwise generate a new one
+	pickup_pin = data.get("pickup_pin")
 	# Parse estimated_pickup_time if provided
 	est_pickup_dt = _parse_iso_datetime(data.get("estimated_pickup_time"))
 	est_arrival_dt = _parse_iso_datetime(data.get("estimated_arrival_time"))
