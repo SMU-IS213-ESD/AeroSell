@@ -78,19 +78,6 @@ const navigateToClaim = (trackingCode) => {
         <p>
           <strong>Current Status:</strong> {{ formatStatus(delivery.status) }}
         </p>
-        <ul>
-          <li
-            v-for="item in delivery.milestones"
-            :key="item.key"
-            :class="{ done: item.complete }"
-          >
-            <div>
-              <strong>{{ item.label }}</strong>
-              <p>{{ item.details }}</p>
-            </div>
-            <span>{{ item.complete ? "Done" : "Pending" }}</span>
-          </li>
-        </ul>
         <button
           v-if="delivery.status !== 'refunded'"
           class="btn btn-secondary"

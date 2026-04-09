@@ -297,7 +297,7 @@ def update_status(order_id):
     db.session.commit()
     print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
     # Publish event
-    publish_status_event(order.order_id, order.status)
+    # publish_status_event(order.id, order.status)
     return jsonify({"message": "Order updated"})
 
 @app.route("/orders/by-timeslot")

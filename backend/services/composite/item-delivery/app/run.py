@@ -112,17 +112,14 @@ def update_order_status(order_id, status):
 	if not order_id:
 		return False
 	payload = {"status": status}
-	# Try multiple possible endpoints until one succeeds
-	url =f"{ORDER_SERVICE_URL}/orders/{order_id}/status",
 	try:
-		resp = requests.put(url, json=payload, timeout=10)
+		resp = requests.put(f"{ORDER_SERVICE_URL}/orders/{order_id}/status", json=payload, timeout=10)
 		if resp.status_code in (200, 201):
-			app.logger.info(f"Updated order {order_id} -> {status} via {url}")
+			app.logger.info(f"Updated order {order_id} -> {status}")
 			return True
-		# Some APIs may accept POST
 		resp = requests.post(url, json=payload, timeout=10)
 		if resp.status_code in (200, 201):
-			app.logger.info(f"Updated order {order_id} -> {status} via POST {url}")
+			app.logger.info(f"Updated order {order_id} -> {status} via POST")
 			return True
 	except Exception:
 		app.logger.debug(f"Attempt to update order via {url} failed")
@@ -149,7 +146,8 @@ def dispatch_drone(booking: dict, drone: dict):
 			"user_id": booking.get("user_id"),
 			"estimated_pickup_time": booking.get("estimated_pickup_time")
 		}
-		resp = requests.post(f"{DRONE_SERVICE_URL}/drones/activate", json=payload, timeout=10)
+		app.logger.info(f"Dispatching drone for order {drone}")
+		resp = requests.post(f"{DRONE_SERVICE_URL}/drones/activate/{drone.get('id')}", json=payload, timeout=10)
 		if resp.status_code in (200, 201):
 			update_order_status(booking.get("order_id") or booking.get("id"), "IN_DELIVERY")
 			data = resp.json()
@@ -206,14 +204,13 @@ def process_confirmed_bookings():
 			drone_id = b.get("drone_id")
 			drone = get_drone_details(drone_id) if drone_id else None
 
-			update_order_status(order_id, "READY_FOR_DELIVERY")
-			mission_id = dispatch_drone(b, drone or {})
-			if not mission_id:
-				app.logger.error(f"Failed to dispatch drone for order {order_id}")
-				continue
-
-			update_order_status(order_id, "IN_TRANSIT")
-			threading.Thread(target=poll_mission_and_finalize, args=(order_id, mission_id), daemon=True).start()
+			if update_order_status(order_id, "READY_FOR_DELIVERY"):
+				mission_id = dispatch_drone(b, drone or {})
+				if not mission_id:
+					app.logger.error(f"Failed to dispatch drone for order {order_id}")
+					continue
+				update_order_status(order_id, "IN_DELIVERY")
+				threading.Thread(target=poll_mission_and_finalize, args=(order_id, mission_id), daemon=True).start()
 
 		except Exception as e:
 			app.logger.exception(f"Error processing booking {order_id}: {e}")
