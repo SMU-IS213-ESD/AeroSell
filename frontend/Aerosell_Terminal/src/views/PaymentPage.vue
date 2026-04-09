@@ -169,12 +169,34 @@ onMounted(async () => {
   // Create payment intent to get client_secret
   try {
     // Prepare order data for webhook processing
+    const estimatedArrival =
+      validationData.value.timeslot ||
+      (state.booking.pickupDate && state.booking.pickupTime
+        ? new Date(`${state.booking.pickupDate}T${state.booking.pickupTime}`).toISOString()
+        : null);
+
+    const flightTimeMin = validationData.value.routeValidation?.flightTimeMin ?? null;
+    const flightTimeMinCeil = flightTimeMin != null ? Math.ceil(Number(flightTimeMin)) : null;
+
+    // Compute estimated_pickup_time = estimatedArrival - ceil(flightTimeMin) minutes
+    let estimatedPickup = estimatedArrival;
+    if (estimatedArrival && flightTimeMinCeil != null) {
+      try {
+        const arrivalMs = new Date(estimatedArrival).getTime();
+        estimatedPickup = new Date(arrivalMs - flightTimeMinCeil * 60000).toISOString();
+      } catch (e) {
+        // fallback to arrival if parsing fails
+        estimatedPickup = estimatedArrival;
+      }
+    }
+
     const orderData = {
       user_id: validationData.value.user_id,
       drone_id: validationData.value.drone_id,
       pickup_location: validationData.value.pickup_location,
       dropoff_location: validationData.value.dropoff_location,
-      item_description: validationData.value.timeslot || `${state.booking.pickupDate} at ${state.booking.pickupTime}`,
+      estimated_arrival_time: estimatedArrival,
+      estimated_pickup_time: estimatedPickup,
       pickup_pin: validationData.value.pickup_pin
     };
 

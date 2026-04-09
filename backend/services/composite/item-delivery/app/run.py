@@ -1,13 +1,22 @@
+import datetime
 import os
 import json
 import time
 import threading
+import logging
+import sys
 from flask import Flask, jsonify, request
 import requests
 import pika
 from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
+
+# Configure logging so app.logger.info/debug appear on stdout (visible in Docker/container logs)
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+app.logger.setLevel(logging.INFO)
+# Ensure Flask/Werkzeug loggers propagate to root
+logging.getLogger('werkzeug').setLevel(logging.INFO)
 
 # Service URLs (assume API gateway / Kong routes)
 ORDER_SERVICE_URL = "http://kong:8000/order"
@@ -41,7 +50,7 @@ def fetch_confirmed_bookings():
 	"""Fetch confirmed bookings/orders that need delivery."""
 	try:
 		# Try common endpoints for orders listing filtered by status
-		resp = requests.get(f"{ORDER_SERVICE_URL}/orders?status=CONFIRMED", timeout=10)
+		resp = requests.get(f"{ORDER_SERVICE_URL}/orders?status=CREATED", timeout=10)
 		if resp.status_code == 200:
 			data = resp.json()
 			# support different shapes
@@ -54,9 +63,9 @@ def fetch_confirmed_bookings():
 		if resp.status_code == 200:
 			data = resp.json()
 			items = data.get("orders") if isinstance(data, dict) else data
-			return [o for o in (items or []) if (o.get("status") or "").upper() == "CONFIRMED"]
+			return [o for o in (items or []) if (o.get("status") or "").upper() == "CREATED"]
 	except Exception as e:
-		app.logger.exception(f"Failed fetching confirmed bookings: {e}")
+		app.logger.exception(f"Failed fetching bookings: {e}")
 	return []
 
 
@@ -207,10 +216,10 @@ def process_confirmed_bookings():
 
 def start_scheduler():
 	scheduler = BackgroundScheduler()
-	# run every 30 minutes
-	scheduler.add_job(process_confirmed_bookings, 'interval', minutes=30, next_run_time=None)
+	#scheduler.add_job(process_confirmed_bookings, 'interval', minutes=30, next_run_time=None)
+	scheduler.add_job(process_confirmed_bookings, 'interval', seconds=20)
 	scheduler.start()
-	app.logger.info("Scheduler started: will run delivery check every 30 minutes")
+	#app.logger.info("Scheduler started: will run delivery check every 30 minutes")
 
 
 def start_rabbit_consumer():

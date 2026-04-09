@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS `order` (
   `user_id` varchar(255) NOT NULL,
   `pickup_location` varchar(255) NOT NULL,
   `dropoff_location` varchar(255) NOT NULL,
-  `item_description` varchar(255) NOT NULL,
+  `estimated_pickup_time` datetime DEFAULT NULL,
+  `estimated_arrival_time` datetime DEFAULT NULL,
+  `final_arrival_time` datetime DEFAULT NULL,
   `status` varchar(50) NOT NULL DEFAULT "CREATED",
   `drone_id` int NOT NULL,
   `created` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -46,8 +48,8 @@ CREATE TABLE IF NOT EXISTS `order` (
 -- Dumping data for table `order`
 --
 
-INSERT INTO `order` (`order_id`, `user_id`, `pickup_location`, `dropoff_location`, `item_description`, `status`, `drone_id`, `created`, `modified`) VALUES
-(1, 'Aaron', 'Tampines', 'Boon Lay', 'Bunch of Bananas', 'CREATED', 12, '2026-03-26 02:14:55', '2026-03-26 02:14:55');
+INSERT INTO `order` (`order_id`, `user_id`, `pickup_location`, `dropoff_location`, `estimated_pickup_time`, `estimated_arrival_time`, `final_arrival_time`, `status`, `drone_id`, `created`, `modified`) VALUES
+(1, 'Aaron', 'Tampines', 'Boon Lay', NULL, NULL, NULL, 'CREATED', 12, '2026-03-26 02:14:55', '2026-03-26 02:14:55');
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;

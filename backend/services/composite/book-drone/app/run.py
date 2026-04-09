@@ -6,7 +6,8 @@ import requests
 import json
 import pika
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+import math
 import stripe
 
 app = Flask(__name__)
@@ -179,6 +180,7 @@ def validate_route_and_calculate_cost(pickup, dropoff, pickup_coords=None, dropo
             delivery_cost = calculate_delivery_cost(distance_km, package_weight_kg, package_size, fragile, priority)
             route_validation.update(delivery_cost)
             return route_validation
+        app.logger.error(f"Route validation failed with status {response.status_code}: {response.text}")
         return None
     except Exception as e:
         app.logger.error(f"Error validating route: {e}")
@@ -263,13 +265,36 @@ def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, paym
         # Generate 8-digit pickup PIN
         import random
         pickup_pin = str(random.randint(10000000, 99999999))
+        # Treat `timeslot` as the user's selected arrival time (estimated_arrival_time)
+        arrival_iso = timeslot.isoformat() if hasattr(timeslot, 'isoformat') else str(timeslot)
+
+        # Try to compute flight_time_min via validating the route so we can derive pickup time
+        flight_time_min = None
+        try:
+            rv = validate_route_and_calculate_cost(pickup, dropoff)
+            if rv:
+                flight_time_min = rv.get('flightTimeMin') or rv.get('estimatedDurationMin')
+        except Exception:
+            app.logger.debug("Could not obtain flight_time_min from flight planning; defaulting to 0")
+
+        if flight_time_min is not None:
+            try:
+                ft = float(flight_time_min)
+                ft_ceil = math.ceil(ft)
+                pickup_dt = timeslot - timedelta(minutes=ft_ceil)
+                pickup_iso = pickup_dt.isoformat()
+            except Exception:
+                pickup_iso = arrival_iso
+        else:
+            pickup_iso = arrival_iso
 
         payload = {
             'user_id': str(user_id),
             'drone_id': drone_id,
             'pickup_location': pickup,
             'dropoff_location': dropoff,
-            'item_description': f"Delivery booking - {timeslot}",
+            'estimated_pickup_time': pickup_iso,
+            'estimated_arrival_time': arrival_iso,
             'status': 'CONFIRMED',
             'pickup_pin': pickup_pin,
             'insurance_id': insurance_id,
@@ -875,11 +900,32 @@ def stripe_webhook():
                     # Generate and keep pickup PIN so we can update payment record later
                     pickup_pin = str(random.randint(10000000, 99999999))
 
+                    # # Map order_data fields to new order schema: compute estimated_pickup_time from arrival_time and flight_time_min
+                    # estimated_arrival = order_data.get("estimated_arrival_time") or order_data.get("estimated_pickup_time") or order_data.get("item_description")
+                    # flight_time_min = order_data.get("flight_time_min") or order_data.get("flightTimeMin")
+
+                    # # Compute pickup time = arrival - ceil(flight_time_min) (minutes)
+                    # pickup_iso = None
+                    # try:
+                    #     if estimated_arrival:
+                    #         arrival_dt = datetime.fromisoformat(estimated_arrival.replace('Z', '+00:00'))
+                    #         if flight_time_min is not None:
+                    #             # coerce to float then round up to nearest whole minute
+                    #             ft = float(flight_time_min)
+                    #             ft_ceil = math.ceil(ft)
+                    #             pickup_dt = arrival_dt - timedelta(minutes=ft_ceil)
+                    #             pickup_iso = pickup_dt.isoformat()
+                    #         else:
+                    #             pickup_iso = arrival_dt.isoformat()
+                    # except Exception:
+                    #     pickup_iso = estimated_arrival
+
                     order_payload = {
                         "user_id": order_data.get("user_id"),
                         "pickup_location": order_data.get("pickup_location"),
                         "dropoff_location": order_data.get("dropoff_location"),
-                        "item_description": order_data.get("item_description"),
+                        "estimated_pickup_time": order_data.get("estimated_pickup_time"),
+                        "estimated_arrival_time": order_data.get("estimated_arrival_time"),
                         "drone_id": order_data.get("drone_id"),
                         "pickup_pin": pickup_pin,
                         "insurance_id": insurance_id

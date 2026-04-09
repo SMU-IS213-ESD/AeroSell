@@ -27,6 +27,8 @@ class RouteValidation(db.Model):
     # Estimates
     estimated_distance_km = db.Column(db.Float, nullable=False)
     estimated_duration_min = db.Column(db.Float, nullable=False)
+    # Estimated round-trip flight time in minutes (to dropoff and return)
+    flight_time_min = db.Column(db.Float, nullable=False, default=0.0)
 
     checked_at = db.Column(db.DateTime(timezone=True), nullable=False)
 
@@ -43,6 +45,7 @@ class RouteValidation(db.Model):
             "reason": self.reason,
             "estimatedDistanceKm": self.estimated_distance_km,
             "estimatedDurationMin": self.estimated_duration_min,
+            "flightTimeMin": self.flight_time_min,
             "checkedAt": checked_at_iso,
             "pickup": {"lat": self.pickup_lat, "lon": self.pickup_lon},
             "dropoff": {"lat": self.dropoff_lat, "lon": self.dropoff_lon},
