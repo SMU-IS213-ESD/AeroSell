@@ -145,11 +145,12 @@ def get_drone_details(drone_id):
 
 def dispatch_drone(booking: dict, drone: dict):
 	"""Send booking + route to drone service to initiate dispatch. Returns mission_id or None."""
+	app.logger.info(f"Dispatching drone for order {booking}")
 	try:
 		payload = {
 			"pickup_location": booking.get("pickup_location"),
 			"dropoff_location": booking.get("dropoff_location"),
-			"user_id": booking.get("user_id"),
+			"order_id": str(booking.get("order_id")),
 			"estimated_pickup_time": booking.get("estimated_pickup_time")
 		}
 		app.logger.info(f"Dispatching drone for order {drone}")
@@ -164,7 +165,7 @@ def dispatch_drone(booking: dict, drone: dict):
 	return None
 
 
-def poll_mission_and_finalize(order_id, mission_id, timeout_seconds=1800, interval=5):
+def poll_mission_and_finalize(order_id):
 	"""Poll drone service for mission status until complete or timeout."""
 	start = time.time()
 	while time.time() - start < timeout_seconds:
@@ -216,7 +217,6 @@ def process_confirmed_bookings():
 					app.logger.error(f"Failed to dispatch drone for order {order_id}")
 					continue
 				update_order_status(order_id, "IN_DELIVERY")
-				threading.Thread(target=poll_mission_and_finalize, args=(order_id, mission_id), daemon=True).start()
 
 		except Exception as e:
 			app.logger.exception(f"Error processing booking {order_id}: {e}")
@@ -225,7 +225,7 @@ def process_confirmed_bookings():
 def start_scheduler():
 	scheduler = BackgroundScheduler()
 	#scheduler.add_job(process_confirmed_bookings, 'interval', minutes=30, next_run_time=None)
-	scheduler.add_job(process_confirmed_bookings, 'interval', seconds=20)
+	scheduler.add_job(process_confirmed_bookings, 'interval', seconds=30)
 	scheduler.start()
 	#app.logger.info("Scheduler started: will run delivery check every 30 minutes")
 
@@ -264,9 +264,44 @@ def start_rabbit_consumer():
 	t = threading.Thread(target=_consume, daemon=True)
 	t.start()
 
+def start_flight_update_consumer():
+	"""Consume `flight_update` events (published by drone sim) and finalize orders."""
+	if not RABBITMQ_URL:
+		return
+
+	def _consume():
+		try:
+			conn = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+			ch = conn.channel()
+			ch.queue_declare(queue='flight_update', durable=True)
+
+			def callback(ch, method, properties, body):
+				try:
+					payload = json.loads(body)
+					if payload.get('event') == 'landed':
+						order_id = payload.get('order_id') or payload.get('order')
+						app.logger.info(f"Received flight_update landed for order {order_id}")
+						try:
+							update_order_status(order_id, 'COMPLETED')
+							publish_notification({'type': 'delivery_completed', 'order_id': order_id})
+						except Exception:
+							app.logger.exception(f"Failed to update order {order_id} to COMPLETED")
+				except Exception:
+					app.logger.exception('Failed handling flight_update message')
+				ch.basic_ack(delivery_tag=method.delivery_tag)
+
+			ch.basic_consume(queue='flight_update', on_message_callback=callback)
+			app.logger.info('Started consuming flight_update queue')
+			ch.start_consuming()
+		except Exception:
+			app.logger.exception('Flight update consumer stopped')
+
+	t = threading.Thread(target=_consume, daemon=True)
+	t.start()
 
 @app.get("/health")
 @app.doc(tags=["Health"], summary="Service health check")
+# @app.route("/health", methods=["GET"])
 def health():
 	return {"status": "healthy", "service": "item-delivery"}, 200
 
@@ -275,6 +310,7 @@ if __name__ == '__main__':
 	# start scheduler and rabbit consumer
 	start_scheduler()
 	start_rabbit_consumer()
+	start_flight_update_consumer()
 	# run flask
 	app.run(host='0.0.0.0', port=8103)
 

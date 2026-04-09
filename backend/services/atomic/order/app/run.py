@@ -150,34 +150,29 @@ def db_check():
 
 @app.get("/orders")
 @app.doc(tags=["Orders"], summary="List all orders")
-@app.output(ListType[OrderOut])
 def get_all():
-    # Support optional status filter: /orders?status=CREATED
-    status = request.args.get('status')
-    if status:
-        orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
-        return jsonify({
-            "code": 200,
-            "data": {"orders": [order.json() for order in orders]}
-        }), 200
+	# Support optional status filter: /orders?status=CREATED
+	status = request.args.get('status')
+	if status:
+		orders = db.session.scalars(db.select(Order).filter_by(status=status)).all()
+		return {
+			"code": 200,
+			"data": {"orders": [order.json() for order in orders]}
+		}, 200
 
-    orderlist = db.session.scalars(db.select(Order)).all()
-    if len(orderlist):
-        return jsonify(
-            {
-                "code": 200,
-                "data": {
-                    "orders": [order.json() for order in orderlist]
-                }
-            }
-        )
+	orderlist = db.session.scalars(db.select(Order)).all()
+	if len(orderlist):
+		return {
+			"code": 200,
+			"data": {
+				"orders": [order.json() for order in orderlist]
+			}
+		}, 200
 
-    return jsonify(
-        {
-            "code": 404,
-            "message": "There are no orders."
-        }
-    ), 404
+	return {
+		"code": 404,
+		"message": "There are no orders."
+	}, 404
 
 @app.route("/order", methods=["POST"])
 def create_order():
@@ -281,20 +276,20 @@ def get_orders_by_drone(drone_id):
 @app.route("/orders/<int:order_id>/status", methods=["PUT", "PATCH"])
 @app.doc(tags=["Orders"], summary="Update order status")
 def update_status(order_id):
-    order = Order.query.get(order_id)
-    if not order:
-        print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
-        return jsonify({"error": "Order not found"}), 404
-    data = request.json
-    old_status = order.status
-    order.status = data["status"]
-    if "drone_id" in data:
-        order.drone_id = data["drone_id"]
-    db.session.commit()
-    print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
-    # Publish event
-    # publish_status_event(order.id, order.status)
-    return jsonify({"message": "Order updated"})
+	order = Order.query.get(order_id)
+	if not order:
+		print(f"[Order Service] PATCH /orders/{order_id}/status - Order NOT found", flush=True)
+		abort(404, "Order not found")
+	data = request.json
+	old_status = order.status
+	order.status = data["status"]
+	if "drone_id" in data:
+		order.drone_id = data["drone_id"]
+	db.session.commit()
+	print(f"[Order Service] PATCH /orders/{order_id}/status - Updated: {old_status} → {order.status}", flush=True)
+	# Publish event
+	# publish_status_event(order.id, order.status)
+	return {"message": "Order updated"}, 200
 
 @app.get("/orders/by-timeslot")
 @app.doc(tags=["Orders"], summary="Get orders by timeslot")
