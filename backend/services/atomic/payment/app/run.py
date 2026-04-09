@@ -46,6 +46,7 @@ class Payment(db.Model):
             "method": self.method,
             "status": self.status,
             "transaction_id": self.transaction_id,
+            "order_data": self.order_data,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -188,108 +189,6 @@ def list_payments():
     return jsonify({"payments": items, "page": page, "per_page": per_page, "total": pagination.total}), 200
 
 
-def create_order_from_payment(payment):
-    """Create an order in the order service after payment succeeds"""
-    if not payment.order_data:
-        # Order data is optional - log but don't fail
-        app.logger.warning(f"No order data for payment {payment.id}, skipping order creation")
-        return None
-
-    try:
-        order_data = json.loads(payment.order_data)
-        # Prepare order data for order service
-        order_payload = {
-            "user_id": order_data.get("user_id"),
-            "pickup_location": order_data.get("pickup_location"),
-            "dropoff_location": order_data.get("dropoff_location"),
-            "item_description": order_data.get("item_description"),
-            "drone_id": order_data.get("drone_id"),
-            "pickup_pin": order_data.get("pickup_pin")
-        }
-
-        response = requests.post(
-            f"{ORDER_SERVICE_URL}/order",
-            json=order_payload,
-            headers={"Content-Type": "application/json"},
-            timeout=10
-        )
-
-        if response.status_code == 201:
-            result = response.json()
-            # The order_id field contains the full order object
-            order_obj = result.get("order_id")
-            if order_obj and isinstance(order_obj, dict):
-                order_id = order_obj.get("order_id")
-                pickup_pin = order_obj.get("pickup_pin")
-
-                # Update payment with order details
-                payment.order_id = order_id
-                payment.pickup_pin = pickup_pin
-                db.session.commit()
-
-                app.logger.info(f"Order {order_id} created for payment {payment.id}")
-                return {"order_id": order_id, "pickup_pin": pickup_pin}
-            else:
-                app.logger.error(f"Invalid order response format: {result}")
-                return None
-        else:
-            app.logger.error(f"Failed to create order: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        app.logger.exception("Failed to create order from payment")
-        return None
-
-
-@app.route("/webhook", methods=["POST"])
-def stripe_webhook():
-    """Handle Stripe webhooks to update payment status."""
-    def _get_obj_id(o):
-        try:
-            return o['id']
-        except Exception:
-            return getattr(o, 'id', None)
-
-    payload = request.data
-    sig_header = request.headers.get("Stripe-Signature")
-    if not STRIPE_WEBHOOK_SECRET:
-        return jsonify({"error": "webhook secret not configured"}), 500
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except ValueError:
-        return jsonify({"error": "invalid payload"}), 400
-    except stripe.error.SignatureVerificationError:
-        return jsonify({"error": "invalid signature"}), 400
-
-    typ = event["type"]
-    obj = event["data"]["object"]
-    if typ == "payment_intent.succeeded":
-        tid = _get_obj_id(obj)
-        p = Payment.query.filter_by(transaction_id=tid).first()
-        if p:
-            p.status = "succeeded"
-            try:
-                db.session.commit()
-                # CREATE ORDER AFTER PAYMENT SUCCEEDS
-                order_result = create_order_from_payment(p)
-                if order_result:
-                    app.logger.info(f"Order created successfully: {order_result}")
-                else:
-                    app.logger.error("Failed to create order after payment success")
-            except Exception:
-                db.session.rollback()
-                app.logger.exception("Failed updating payment status from webhook")
-    elif typ == "payment_intent.payment_failed":
-        tid = _get_obj_id(obj)
-        p = Payment.query.filter_by(transaction_id=tid).first()
-        if p:
-            p.status = "failed"
-            try:
-                db.session.commit()
-            except Exception:
-                db.session.rollback()
-                app.logger.exception("Failed updating payment status from webhook")
-
-    return jsonify({"received": True}), 200
 
 
 @app.route("/<int:payment_id>/status", methods=["PUT"])
@@ -310,6 +209,38 @@ def update_payment_status(payment_id: int):
         return jsonify({"error": "internal error"}), 500
     return jsonify({"success": True}), 200
 
+@app.route("/<int:payment_id>", methods=["PUT"])
+def update_payment(payment_id: int):
+    p = Payment.query.get(payment_id)
+    if not p:
+        return jsonify({"error": "not found"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+
+    # Only allow updating specific fields used by the composite service
+    order_id = data.get("order_id")
+    pickup_pin = data.get("pickup_pin")
+
+    if order_id is None and pickup_pin is None:
+        return jsonify({"error": "nothing to update"}), 400
+
+    if order_id is not None:
+        try:
+            p.order_id = int(order_id)
+        except Exception:
+            return jsonify({"error": "invalid order_id"}), 400
+
+    if pickup_pin is not None:
+        p.pickup_pin = str(pickup_pin)
+
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Failed updating payment record")
+        return jsonify({"error": "internal error"}), 500
+
+    return jsonify({"success": True}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8007)

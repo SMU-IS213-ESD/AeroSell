@@ -1,3 +1,5 @@
+import random
+
 from flask import Flask, request, jsonify
 import os
 import requests
@@ -5,6 +7,7 @@ import json
 import pika
 import uuid
 from datetime import datetime
+import stripe
 
 app = Flask(__name__)
 
@@ -14,6 +17,11 @@ ORDER_SERVICE_URL = "http://kong:8000/order"
 DRONE_SERVICE_URL = "http://kong:8000/drone"
 FLIGHT_PLANNING_URL = "http://kong:8000/flight"
 PAYMENT_SERVICE_URL = "http://kong:8000/payment"
+INSURANCE_SERVICE_URL = "http://insurance:8500"
+
+# Stripe configuration for webhooks
+stripe.api_key = os.environ.get("STRIPE_API_KEY")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
 # RabbitMQ configuration for notifications
 RABBITMQ_URL = os.environ.get("RABBITMQ_URL")
@@ -249,7 +257,7 @@ def verify_payment_intent(payment_intent_id):
         app.logger.error(f"Error verifying payment intent: {e}")
         return None
 
-def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, payment_details):
+def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, payment_details, insurance_id=None):
     """Create order record with payment details"""
     try:
         # Generate 8-digit pickup PIN
@@ -264,6 +272,7 @@ def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, paym
             'item_description': f"Delivery booking - {timeslot}",
             'status': 'CONFIRMED',
             'pickup_pin': pickup_pin,
+            'insurance_id': insurance_id,
             'payment_details': payment_details
         }
 
@@ -384,10 +393,23 @@ def book_drone():
         payment_id = payment_response.get("payment_id")
         app.logger.info(f"Payment processed successfully. Payment ID: {payment_id}")
 
-        # Step 5: Create order with booking and payment details
+        # Step 5: Get insurance ID from insurance service
+        insurance_id = None
+        try:
+            insurance_response = requests.get(f"{INSURANCE_SERVICE_URL}/buy", timeout=10)
+            if insurance_response.status_code == 200:
+                insurance_data = insurance_response.json()
+                insurance_id = insurance_data.get("insurance_id")
+                app.logger.info(f"Obtained insurance_id {insurance_id} for booking")
+            else:
+                app.logger.error(f"Failed to get insurance_id: {insurance_response.status_code}")
+        except Exception as e:
+            app.logger.exception("Failed to call insurance service for insurance_id")
+
+        # Step 6: Create order with booking, payment, and insurance details
         order_data = create_order_with_payment(
             user_id, drone_id, pickup_location, dropoff_location,
-            timeslot, payment_response
+            timeslot, payment_response, insurance_id
         )
         if not order_data:
             return jsonify({'error': 'Order creation failed'}), 500
@@ -656,10 +678,25 @@ def confirm_booking():
 
         app.logger.info(f"Payment processed successfully. Payment ID: {payment_id}")
 
-        # Step 5: Create order with booking and payment details
+        # Step 5: Get insurance ID from insurance service
+        insurance_id = None
+        app.logger.error(f"DEBUG BOOK: insurance_id extracted = {insurance_id}")
+        try:
+            insurance_response = requests.get(f"{INSURANCE_SERVICE_URL}/buy", timeout=10)
+            app.logger.error(f"DEBUG BOOK: insurance_id extracted = {insurance_id}")
+            if insurance_response.status_code == 200:
+                insurance_data = insurance_response.json()
+                insurance_id = insurance_data.get("insurance_id")
+                app.logger.info(f"Obtained insurance_id {insurance_id} for booking")
+            else:
+                app.logger.error(f"Failed to get insurance_id: {insurance_response.status_code}")
+        except Exception as e:
+            app.logger.exception("Failed to call insurance service for insurance_id")
+
+        # Step 6: Create order with booking, payment, and insurance details
         order_data = create_order_with_payment(
             user_id, drone_id, pickup_location, dropoff_location,
-            timeslot, verification_result
+            timeslot, verification_result, insurance_id
         )
         if not order_data:
             return jsonify({'error': 'Order creation failed'}), 500
@@ -726,6 +763,211 @@ def validate_route():
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route("/webhook", methods=["POST"])
+def stripe_webhook():
+    """Handle Stripe webhooks to create orders after payment succeeds."""
+    def _get_obj_id(o):
+        try:
+            return o['id']
+        except Exception:
+            return getattr(o, 'id', None)
+
+    # Handle both Stripe webhooks (with signature) and direct test calls (without signature)
+    payload = request.data
+    sig_header = request.headers.get("Stripe-Signature")
+
+    # If no signature and no STRIPE_WEBHOOK_SECRET configured, treat as test call
+    if not sig_header:
+        if not STRIPE_WEBHOOK_SECRET:
+            app.logger.warning("No Stripe signature and no SECRET configured - treating as test")
+            try:
+                event = json.loads(payload)
+            except:
+                return jsonify({"error": "invalid JSON payload"}), 400
+        else:
+            return jsonify({"error": "missing Stripe signature header"}), 400
+    else:
+        # Verify Stripe signature
+        try:
+            event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+        except ValueError:
+            return jsonify({"error": "invalid payload"}), 400
+        except stripe.error.SignatureVerificationError:
+            return jsonify({"error": "invalid signature"}), 400
+
+    typ = event["type"]
+    obj = event["data"]["object"]
+
+    if typ == "payment_intent.succeeded":
+        tid = _get_obj_id(obj)
+        app.logger.info(f"Processing payment_intent.succeeded: {tid}")
+
+        # Step 1: Update payment status in payment service
+        try:
+            # Find payment by transaction_id
+            payment_response = requests.get(
+                f"{PAYMENT_SERVICE_URL}/",
+                params={"transaction_id": tid},
+                timeout=10
+            )
+
+            if payment_response.status_code != 200:
+                app.logger.error(f"Failed to get payment: {payment_response.status_code}")
+                return jsonify({"error": "Payment not found"}), 404
+
+            payments = payment_response.json().get("payments", [])
+            if not payments:
+                app.logger.error(f"No payment found for transaction_id {tid}")
+                return jsonify({"error": "Payment not found"}), 404
+
+            payment = payments[0]
+            payment_id = payment.get("id")
+            payment_status = "succeeded"
+
+            # Update payment status
+            update_resp = requests.put(
+                f"{PAYMENT_SERVICE_URL}/{payment_id}/status",
+                json={"status": payment_status},
+                timeout=10
+            )
+
+            if update_resp.status_code != 200:
+                app.logger.error(f"Failed to update payment status: {update_resp.status_code}")
+                return jsonify({"error": "Failed to update payment"}), 500
+
+            app.logger.info(f"Payment {payment_id} status updated to succeeded")
+
+        except Exception as e:
+            app.logger.exception(f"Error updating payment status: {e}")
+            return jsonify({"error": "Failed to update payment"}), 500
+
+        # Step 2: Call insurance service to get insurance_id
+        insurance_id = None
+        try:
+            insurance_response = requests.get(f"{INSURANCE_SERVICE_URL}/buy", timeout=10)
+            if insurance_response.status_code == 200:
+                insurance_data = insurance_response.json()
+                insurance_id = insurance_data.get("insurance_id")
+                app.logger.info(f"Obtained insurance_id {insurance_id}")
+            else:
+                app.logger.error(f"Failed to get insurance_id: {insurance_response.status_code}")
+        except Exception as e:
+            app.logger.exception("Failed to call insurance service")
+
+        # Step 3: Create order with payment details
+        # Fetch complete payment details including order_data from payment service
+        try:
+            payment_detail_response = requests.get(
+                f"{PAYMENT_SERVICE_URL}/{payment_id}",
+                timeout=10
+            )
+
+
+            if payment_detail_response.status_code == 200:
+                full_payment_details = payment_detail_response.json()
+                app.logger.error(f"DEBUG BOOK: payment_detail_response status_code = {full_payment_details}")
+                order_data_str = full_payment_details.get("order_data")
+
+                if order_data_str:
+                    order_data = json.loads(order_data_str)
+
+                    # Generate and keep pickup PIN so we can update payment record later
+                    pickup_pin = str(random.randint(10000000, 99999999))
+
+                    order_payload = {
+                        "user_id": order_data.get("user_id"),
+                        "pickup_location": order_data.get("pickup_location"),
+                        "dropoff_location": order_data.get("dropoff_location"),
+                        "item_description": order_data.get("item_description"),
+                        "drone_id": order_data.get("drone_id"),
+                        "pickup_pin": pickup_pin,
+                        "insurance_id": insurance_id
+                    }
+
+                    # Create order
+                    order_response = requests.post(
+                        f"{ORDER_SERVICE_URL}/order",
+                        json=order_payload,
+                        timeout=10
+                    )
+
+                    if order_response.status_code == 201:
+                        order_result = order_response.json()
+
+                        # Determine order_id robustly from response
+                        order_id = None
+                        o = order_result.get("order_id")
+                        if isinstance(o, dict):
+                            order_id = o.get("order_id")
+                        else:
+                            order_id = o or order_result.get("id") or order_result.get("orderId")
+
+                        if order_id:
+                            app.logger.info(f"Order {order_id} created successfully with insurance_id {insurance_id}")
+
+                            # Update payment record so frontend polling sees order_id and pickup_pin
+                            try:
+                                update_resp = requests.put(
+                                    f"{PAYMENT_SERVICE_URL}/{payment_id}",
+                                    json={"order_id": order_id, "pickup_pin": pickup_pin},
+                                    timeout=10
+                                )
+
+                                if update_resp.status_code in [200, 201]:
+                                    app.logger.info(f"Payment {payment_id} updated with order_id {order_id} and pickup_pin")
+                                else:
+                                    app.logger.error(f"Failed to update payment {payment_id}: {update_resp.status_code} - {update_resp.text}")
+                            except Exception as e:
+                                app.logger.exception(f"Exception updating payment record: {e}")
+
+                            return jsonify({
+                                "received": True,
+                                "order_id": order_id,
+                                "insurance_id": insurance_id
+                            }), 200
+                    else:
+                        app.logger.error(f"Failed to create order: {order_response.status_code}")
+                        return jsonify({"error": "Failed to create order"}), 500
+                else:
+                    app.logger.warning("No order_data in payment details, order creation skipped")
+            else:
+                app.logger.error(f"Failed to fetch payment details: {payment_detail_response.status_code}")
+                return jsonify({"error": "Failed to fetch payment details"}), 500
+        except Exception as e:
+            app.logger.exception("Failed to create order")
+            return jsonify({"error": "Failed to create order"}), 500
+
+    elif typ == "payment_intent.payment_failed":
+        tid = _get_obj_id(obj)
+        app.logger.info(f"Processing payment_intent.payment_failed: {tid}")
+        # Update payment status to failed
+        try:
+            payment_response = requests.get(
+                f"{PAYMENT_SERVICE_URL}/",
+                params={"transaction_id": tid},
+                timeout=10
+            )
+
+            if payment_response.status_code == 200:
+                payments = payment_response.json().get("payments", [])
+                if payments:
+                    payment = payments[0]
+                    payment_id = payment.get("id")
+
+                    update_resp = requests.put(
+                        f"{PAYMENT_SERVICE_URL}/{payment_id}/status",
+                        json={"status": "failed"},
+                        timeout=10
+                    )
+
+                    if update_resp.status_code == 200:
+                        app.logger.info(f"Payment {payment_id} status updated to failed")
+        except Exception as e:
+            app.logger.exception(f"Error updating payment status: {e}")
+
+    return jsonify({"received": True}), 200
+
 
 @app.route("/create-payment-intent", methods=["POST"])
 def create_payment_intent():

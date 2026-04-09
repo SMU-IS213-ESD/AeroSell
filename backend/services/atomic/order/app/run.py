@@ -32,6 +32,7 @@ class Order(db.Model):
     status = db.Column(db.String(50), default="CREATED")
     drone_id = db.Column(db.Integer, nullable=False)
     pickup_pin = db.Column(db.String(8))  # 8-digit pickup PIN
+    insurance_id = db.Column(db.String(255), nullable=True)  # Insurance ID from insurance service
     created = db.Column(db.DateTime, nullable=False, default=datetime.now)
     modified = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
@@ -45,6 +46,7 @@ class Order(db.Model):
             'status': self.status,
             'drone_id': self.drone_id,
             'pickup_pin': self.pickup_pin,
+            'insurance_id': self.insurance_id,
             'created': self.created,
             'modified': self.modified
         }
@@ -148,6 +150,7 @@ def create_order():
         item_description=data.get("item_description"),
         drone_id=data.get("drone_id"),
         pickup_pin=pickup_pin,
+        insurance_id=data.get("insurance_id"),  # New field for insurance ID
         status="CREATED"
     )
 
