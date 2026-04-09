@@ -6,6 +6,7 @@ import { useAppStore } from "../store/appStore";
 const router = useRouter();
 const route = useRoute();
 const { setUser, setAuth, fetchUserOrders } = useAppStore();
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8880").replace(/\/$/, "");
 
 const form = reactive({
   email: "",
@@ -15,31 +16,30 @@ const form = reactive({
 const loading = ref(false);
 const error = ref("");
 
+const extractErrorMessage = async (res) => {
+  let msg = `Request failed: ${res.status}`;
+  const text = await res.text();
+  if (!text) return msg;
+  try {
+    const payload = JSON.parse(text);
+    return payload?.message || payload?.error || text;
+  } catch {
+    return text;
+  }
+};
+
 const submit = async () => {
   error.value = "";
   loading.value = true;
   try {
-    const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/user/login`, {
+    const res = await fetch(`${API_BASE}/user/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: form.email, password: form.password }),
     });
 
     if (!res.ok) {
-      // Try to parse structured JSON error first, fall back to plain text
-      let msg = `Request failed: ${res.status}`;
-      try {
-        const payload = await res.json();
-        msg = payload?.message || payload?.error || JSON.stringify(payload);
-      } catch (e) {
-        const txt = await res.text();
-        try {
-          const parsed = JSON.parse(txt);
-          msg = parsed?.message || parsed?.error || txt;
-        } catch {
-          msg = txt || msg;
-        }
-      }
+      const msg = await extractErrorMessage(res);
       throw new Error(msg);
     }
 
