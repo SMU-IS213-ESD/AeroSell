@@ -1,12 +1,14 @@
-## Template of Microservices
+## Order Service
 
-A Docker Compose template for our microservices. It includes a Postgres 15 service, and the Python `web` service communicates with the database using SQLAlchemy.
+The Order Service stores delivery orders and tracks their status lifecycle.
+It runs on port `8006` and uses `DATABASE_URL` plus `RABBITMQ_URL`.
 
 ### Contents
 
-- `docker-compose.yml` — defines `web` and `db` (Postgres 15) services.
-- `Dockerfile` — build instructions for the `web` image.
-- `app/run.py` — minimal Flask app with a `/db-check` health endpoint that verifies DB communication via SQLAlchemy.
+- `docker-compose.yml` — local service definition.
+- `Dockerfile` — build instructions for the APIFlask app.
+- `app/run.py` — order CRUD endpoints and RabbitMQ event handling.
+- `app/order.sql` — legacy schema seed data.
 - `requirements.txt` — Python dependencies.
 
 ### Quickstart
@@ -20,19 +22,21 @@ docker compose up --build
 2. Check DB connectivity:
 
 ```bash
-curl -i http://localhost:8000/db-check
+curl -i http://localhost:8006/db-check
 ```
 
-Expect HTTP 200 and a JSON `true` when the Postgres service is ready.
+### Key Endpoints
 
-### Configuration
-
-- The application reads the database URL from the `DATABASE_URL` environment variable (set for the `web` service in `docker-compose.yml`). Example value:
-
-```
-postgresql://user:password@db:5432/postgres
-```
+- `GET /db-check`
+- `GET /orders`
+- `POST /order`
+- `GET /orders/<int:order_id>`
+- `GET /orders/user/<string:user_id>`
+- `GET /orders/drone/<int:drone_id>`
+- `PATCH /orders/<int:order_id>/status`
+- `GET /orders/by-timeslot`
 
 ### Notes
 
-- See `app/run.py` for the SQLAlchemy usage and the `/db-check` implementation.
+- The service publishes order status updates to RabbitMQ.
+- It also consumes anomaly events to move affected orders through the recovery flow.

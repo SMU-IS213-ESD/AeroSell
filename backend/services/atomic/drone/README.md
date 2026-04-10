@@ -1,12 +1,14 @@
-## Template of Microservices
+## Drone Service
 
-A Docker Compose template for our microservices. It includes a Postgres 15 service, and the Python `web` service communicates with the database using SQLAlchemy.
+The Drone Service manages drone records and telemetry for AeroSell.
+It runs on port `8002` and uses `DATABASE_URL` plus `RABBITMQ_URL`.
 
 ### Contents
 
-- `docker-compose.yml` — defines `web` and `db` (Postgres 15) services.
-- `Dockerfile` — build instructions for the `web` image.
-- `app/run.py` — minimal Flask app with a `/db-check` health endpoint that verifies DB communication via SQLAlchemy.
+- `docker-compose.yml` — local service definition.
+- `Dockerfile` — build instructions for the APIFlask app.
+- `app/run.py` — service entry point with telemetry consumers and anomaly publishing.
+- `sim/` — drone simulator helpers used by the local stack.
 - `requirements.txt` — Python dependencies.
 
 ### Quickstart
@@ -20,19 +22,21 @@ docker compose up --build
 2. Check DB connectivity:
 
 ```bash
-curl -i http://localhost:8000/db-check
+curl -i http://localhost:8002/db-check
 ```
 
-Expect HTTP 200 and a JSON `true` when the Postgres service is ready.
+### Key Endpoints
 
-### Configuration
-
-- The application reads the database URL from the `DATABASE_URL` environment variable (set for the `web` service in `docker-compose.yml`). Example value:
-
-```
-postgresql://user:password@db:5432/postgres
-```
+- `GET /db-check`
+- `GET /drones`
+- `GET /drones/<int:drone_id>`
+- `GET /drones/available`
+- `POST /drones`
+- `POST /drones/activate/<int:drone_id>`
+- `PATCH /drones/<int:drone_id>`
+- `DELETE /drones/<int:drone_id>`
 
 ### Notes
 
-- See `app/run.py` for the SQLAlchemy usage and the `/db-check` implementation.
+- The service consumes telemetry and flight update messages from RabbitMQ.
+- When a telemetry anomaly is detected it publishes a `drone.anomaly` event for downstream services.

@@ -1,12 +1,14 @@
-## Template of Microservices
+## Document Service
 
-A Docker Compose template for our microservices. It includes a Postgres 15 service, and the Python `web` service communicates with the database using SQLAlchemy.
+The Document Service stores uploaded evidence files and their metadata for an order.
+It runs on port `8001` and uses `DATABASE_URL` for its database connection.
 
 ### Contents
 
-- `docker-compose.yml` — defines `web` and `db` (Postgres 15) services.
-- `Dockerfile` — build instructions for the `web` image.
-- `app/run.py` — minimal Flask app with a `/db-check` health endpoint that verifies DB communication via SQLAlchemy.
+- `docker-compose.yml` — defines the `web` and `db` services.
+- `Dockerfile` — build instructions for the APIFlask application.
+- `app/run.py` — API entry point with upload and lookup endpoints.
+- `app/models.py` — document metadata model.
 - `requirements.txt` — Python dependencies.
 
 ### Quickstart
@@ -20,19 +22,27 @@ docker compose up --build
 2. Check DB connectivity:
 
 ```bash
-curl -i http://localhost:8000/db-check
+curl -i http://localhost:8001/db-check
 ```
 
-Expect HTTP 200 and a JSON `true` when the Postgres service is ready.
+3. Upload a document:
+
+```bash
+curl -F "file=@evidence.pdf" -F "order_id=123" http://localhost:8001/upload
+```
+
+4. List documents for an order:
+
+```bash
+curl http://localhost:8001/documents/123
+```
 
 ### Configuration
 
-- The application reads the database URL from the `DATABASE_URL` environment variable (set for the `web` service in `docker-compose.yml`). Example value:
-
-```
-postgresql://user:password@db:5432/postgres
-```
+- The application reads the database URL from the `DATABASE_URL` environment variable.
+- Uploaded files are saved under `app/uploads`.
 
 ### Notes
 
-- See `app/run.py` for the SQLAlchemy usage and the `/db-check` implementation.
+- The service is used for insurance claim evidence and order attachment uploads.
+- See `app/run.py` for the `/upload`, `/documents/<order_id>`, and `/db-check` implementations.

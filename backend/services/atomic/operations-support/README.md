@@ -1,12 +1,13 @@
-## Template of Microservices
+## Operations Support Service
 
-A Docker Compose template for our microservices. It includes a Postgres 15 service, and the Python `web` service communicates with the database using SQLAlchemy.
+The Operations Support Service manages staff records and assignment workflows.
+It runs on port `8005` and uses `DATABASE_URL`.
 
 ### Contents
 
-- `docker-compose.yml` — defines `web` and `db` (Postgres 15) services.
-- `Dockerfile` — build instructions for the `web` image.
-- `app/run.py` — minimal Flask app with a `/db-check` health endpoint that verifies DB communication via SQLAlchemy.
+- `docker-compose.yml` — local service definition.
+- `Dockerfile` — build instructions for the APIFlask app.
+- `app/run.py` — staff, assignment, and health endpoints.
 - `requirements.txt` — Python dependencies.
 
 ### Quickstart
@@ -20,19 +21,24 @@ docker compose up --build
 2. Check DB connectivity:
 
 ```bash
-curl -i http://localhost:8000/db-check
+curl -i http://localhost:8005/db-check
 ```
 
-Expect HTTP 200 and a JSON `true` when the Postgres service is ready.
+### Key Endpoints
 
-### Configuration
-
-- The application reads the database URL from the `DATABASE_URL` environment variable (set for the `web` service in `docker-compose.yml`). Example value:
-
-```
-postgresql://user:password@db:5432/postgres
-```
+- `POST /operations-support/assign`
+- `POST /operations-support/assignment`
+- `GET /operations-support/assignment`
+- `GET /operations-support/assignment/<int:assignment_id>`
+- `PUT /operations-support/assignment/<int:assignment_id>`
+- `DELETE /operations-support/assignment/<int:assignment_id>`
+- `POST /operations-support/staff`
+- `GET /operations-support/staff`
+- `GET /operations-support/staff/available`
+- `GET /operations-support/staff/<int:staff_id>`
+- `PUT /operations-support/staff/<int:staff_id>`
+- `DELETE /operations-support/staff/<int:staff_id>`
 
 ### Notes
 
-- See `app/run.py` for the SQLAlchemy usage and the `/db-check` implementation.
+- The service is used to assign staff to drone anomalies and other operational tasks.

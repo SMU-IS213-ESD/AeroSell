@@ -1,4 +1,7 @@
-# AeroSell Frontend (Vue + Vite)
+# AeroSell Terminal
+
+Booking and payment UI for the operator side of AeroSell.
+It covers login, booking validation, Stripe checkout, and the final confirmation screen.
 
 ## Setup
 
@@ -15,38 +18,40 @@ cp .env.example .env
 ```
 
 3. Configure:
+- `VITE_API_BASE_URL`: Kong gateway base URL, usually `http://localhost:8880`.
 - `VITE_STRIPE_PUBLISHABLE_KEY`: your Stripe publishable key.
-- `VITE_API_BASE_URL`: backend base URL that exposes `POST /payments/create-intent`.
 
-4. Run app:
+4. Run the app:
 
 ```bash
 npm run dev
 ```
 
-## Stripe PaymentIntent API contract
+## Backend Contract
 
-Frontend sends:
+The terminal app talks to the gateway-backed composite services:
+
+- `POST /user/login`
+- `POST /user/register`
+- `POST /book-drone/validate`
+- `POST /book-drone/create-payment-intent`
+- `POST /book-drone/confirm`
+- `GET /book-drone/payments/:paymentId`
+- `GET /flight/routes/pickup-points`
+- `POST /flight/routes/validate-by-ids`
+
+The payment intent response used by the payment page should look like this:
 
 ```json
 {
-	"amount": 4599,
-	"currency": "usd",
-	"booking": { "...": "booking fields" },
-	"customer": { "email": "user@example.com", "name": "User" }
+  "success": true,
+  "client_secret": "pi_xxx_secret_xxx",
+  "payment_id": 123,
+  "transaction_id": "pi_xxx"
 }
 ```
 
-Backend should respond with:
+## Auth Guards
 
-```json
-{
-	"clientSecret": "pi_xxx_secret_xxx",
-	"paymentIntentId": "pi_xxx"
-}
-```
-
-## Auth guards
-
-Routes for booking, payment, confirmation, and status require login.
-Unauthenticated users are redirected to login and then returned to their original target route.
+Routes for booking, payment, and confirmation require login.
+Unauthenticated users are redirected to login and returned to their original route after sign-in.

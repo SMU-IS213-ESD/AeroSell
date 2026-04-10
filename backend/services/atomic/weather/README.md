@@ -111,7 +111,7 @@ Open `.env` and fill in your OpenWeather API key:
 OPENWEATHER_API_KEY=your_api_key_here
 REDIS_HOST=localhost
 REDIS_PORT=6379
-PORT=8006
+PORT=8009
 ```
 
 Get a free API key at <https://openweathermap.org/api>.
@@ -122,7 +122,7 @@ Get a free API key at <https://openweathermap.org/api>.
 docker compose up --build
 ```
 
-This starts the `web` service on port **8006** and a `redis:7-alpine` container.
+This starts the `web` service on port **8009** and a `redis:7-alpine` container.
 
 ### 3. Start without Docker (local development)
 
@@ -138,7 +138,7 @@ python app/main.py
 ### Liveness check
 
 ```bash
-curl http://localhost:8006/health
+curl http://localhost:8009/health
 ```
 
 Expected response:
@@ -150,7 +150,7 @@ Expected response:
 ### Safety check (replace coordinates with your target location)
 
 ```bash
-curl "http://localhost:8006/weather/check?lat=1.3&lon=103.8"
+curl "http://localhost:8009/weather/check?lat=1.3&lon=103.8"
 ```
 
 Expected: HTTP 200 with a JSON body containing `safe`, `reasons`, `weather`, `source`, and `checkedAt`.
@@ -158,7 +158,7 @@ Expected: HTTP 200 with a JSON body containing `safe`, `reasons`, `weather`, `so
 ### Raw weather data
 
 ```bash
-curl "http://localhost:8006/weather/current?lat=1.3&lon=103.8"
+curl "http://localhost:8009/weather/current?lat=1.3&lon=103.8"
 ```
 
 Expected: HTTP 200 with `weather` fields and no safety keys.
@@ -168,9 +168,9 @@ Expected: HTTP 200 with `weather` fields and no safety keys.
 Run the same request twice and check that the second response has `"source": "cache"`:
 
 ```bash
-curl "http://localhost:8006/weather/check?lat=1.3&lon=103.8" | python -m json.tool
+curl "http://localhost:8009/weather/check?lat=1.3&lon=103.8" | python -m json.tool
 # wait a moment, then:
-curl "http://localhost:8006/weather/check?lat=1.3&lon=103.8" | python -m json.tool
+curl "http://localhost:8009/weather/check?lat=1.3&lon=103.8" | python -m json.tool
 ```
 
 The second response should show `"source": "cache"`.
@@ -182,7 +182,7 @@ The second response should show `"source": "cache"`.
 | Field | Value |
 |---|---|
 | Method | `GET` |
-| URL | `http://localhost:8006/health` |
+| URL | `http://localhost:8009/health` |
 
 Expected response:
 ```json
@@ -196,7 +196,7 @@ Expected response:
 | Field | Value |
 |---|---|
 | Method | `GET` |
-| URL | `http://localhost:8006/weather/check` |
+| URL | `http://localhost:8009/weather/check` |
 
 In the **Params** tab, add:
 
@@ -216,7 +216,7 @@ To test an unsafe scenario, use coordinates for a known storm region or temporar
 | Field | Value |
 |---|---|
 | Method | `GET` |
-| URL | `http://localhost:8006/weather/current` |
+| URL | `http://localhost:8009/weather/current` |
 
 In the **Params** tab, add:
 
@@ -251,7 +251,7 @@ Send the same `/weather/check` request twice. The first response will have `"sou
 Open in a browser:
 
 ```
-http://localhost:8006/docs
+http://localhost:8009/docs
 ```
 
 You can test both endpoints directly from the browser without needing curl.

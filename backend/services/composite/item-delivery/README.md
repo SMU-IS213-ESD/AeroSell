@@ -1,12 +1,13 @@
-## Template of Microservices
+## Item Delivery Composite Service
 
-A Docker Compose template for our microservices. It includes a Postgres 15 service, and the Python `web` service communicates with the database using SQLAlchemy.
+The Item Delivery service runs the scheduled delivery workflow.
+It runs on port `8103` and coordinates order checks, weather validation, drone dispatch, and downstream notifications.
 
 ### Contents
 
-- `docker-compose.yml` — defines `web` and `db` (Postgres 15) services.
-- `Dockerfile` — build instructions for the `web` image.
-- `app/run.py` — minimal Flask app with a `/db-check` health endpoint that verifies DB communication via SQLAlchemy.
+- `docker-compose.yml` — local service definition.
+- `Dockerfile` — build instructions for the APIFlask app.
+- `app/run.py` — scheduler, RabbitMQ consumers, and delivery orchestration.
 - `requirements.txt` — Python dependencies.
 
 ### Quickstart
@@ -17,22 +18,25 @@ A Docker Compose template for our microservices. It includes a Postgres 15 servi
 docker compose up --build
 ```
 
-2. Check DB connectivity:
+2. Check health:
 
 ```bash
-curl -i http://localhost:8000/db-check
+curl -i http://localhost:8103/health
 ```
 
-Expect HTTP 200 and a JSON `true` when the Postgres service is ready.
+### Behavior
+
+- Fetches confirmed orders that are ready for delivery.
+- Re-checks weather before dispatching a drone.
+- Moves orders to `DELAYED`, `READY_FOR_DELIVERY`, `IN_DELIVERY`, or `COMPLETED` as the workflow progresses.
+- Consumes `drone_events` and `flight_update` queues to react to drone updates.
 
 ### Configuration
 
-- The application reads the database URL from the `DATABASE_URL` environment variable (set for the `web` service in `docker-compose.yml`). Example value:
-
-```
-postgresql://user:password@db:5432/postgres
-```
+- The service expects `RABBITMQ_URL`.
+- It reaches the atomic services through Kong-backed URLs under `http://kong:8000`.
 
 ### Notes
 
-- See `app/run.py` for the SQLAlchemy usage and the `/db-check` implementation.
+- The only public endpoint is `GET /health`.
+- Delivery notifications are published through RabbitMQ when the workflow changes state.
