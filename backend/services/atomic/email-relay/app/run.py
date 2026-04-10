@@ -119,6 +119,7 @@ class EmailRelayConsumer:
         ok, reason = validate_payload(payload)
         if not ok:
             print(f"[email-relay] Invalid payload schema. Dropping message. reason={reason}", flush=True)
+            print(f"[email-relay] Payload content: {payload}", flush=True)
             ch.basic_ack(delivery_tag=method.delivery_tag)
             return
 

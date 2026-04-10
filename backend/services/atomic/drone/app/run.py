@@ -287,12 +287,10 @@ def amqp_consumer_thread():
 			
 			# Declare queues (idempotent)
 			channel.queue_declare(queue='telemetry', durable=True)
-			channel.queue_declare(queue='flight_update', durable=True)
 			print(f"[Consumer Thread] Declared queues: telemetry, flight_update", flush=True)
 			
 			# Bind queues to exchange
 			channel.queue_bind(exchange='drone', queue='telemetry', routing_key='telemetry')
-			channel.queue_bind(exchange='drone', queue='flight_update', routing_key='flight_update')
 			print(f"[Consumer Thread] Bound queues to 'drone' exchange (NOT 'drone_anomaly')", flush=True)
 			
 			# Set QoS to process one message at a time from each queue
@@ -300,7 +298,6 @@ def amqp_consumer_thread():
 			
 			# Set up consumers
 			channel.basic_consume(queue='telemetry', on_message_callback=telemetry_callback, auto_ack=True)
-			channel.basic_consume(queue='flight_update', on_message_callback=flight_update_callback, auto_ack=True)
 			print("[Consumer Thread] Started consuming from 'drone' exchange (telemetry, flight_update only)...", flush=True)
 			print("[Consumer Thread] NOTE: Publishing (anomalies) uses SEPARATE fresh connection for thread safety", flush=True)
 			channel.start_consuming()

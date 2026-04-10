@@ -29,6 +29,7 @@ ORDER_SERVICE_URL = "http://kong:8000/order"
 DRONE_SERVICE_URL = "http://kong:8000/drone"
 FLIGHT_PLANNING_URL = "http://kong:8000/flight"
 WEATHER_SERVICE_URL = os.environ.get("WEATHER_SERVICE_URL", "http://kong:8000/weather")
+USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://kong:8000/user")
 RABBITMQ_URL = os.environ.get("RABBITMQ_URL")
 
 if not RABBITMQ_URL:
@@ -142,6 +143,51 @@ def get_drone_details(drone_id):
 	return None
 
 
+def get_user_email(user_id):
+	"""Fetch user email from user service by user_id."""
+	if not user_id:
+		return None
+	try:
+		resp = requests.get(f"{USER_SERVICE_URL}/{user_id}", timeout=10)
+		if resp.status_code == 200:
+			data = resp.json()
+			if isinstance(data, dict):
+				return data.get("email")
+		app.logger.warning(f"User lookup failed for user_id {user_id}: {resp.status_code}")
+	except Exception:
+		app.logger.exception(f"Failed fetching user email for user_id {user_id}")
+	return None
+
+
+def get_order_by_id(order_id):
+	"""Fetch order details from order service."""
+	if not order_id:
+		return None
+	try:
+		resp = requests.get(f"{ORDER_SERVICE_URL}/orders/{order_id}", timeout=10)
+		if resp.status_code == 200:
+			data = resp.json()
+			if isinstance(data, dict):
+				return data
+		app.logger.warning(f"Order lookup failed for order_id {order_id}: {resp.status_code}")
+	except Exception:
+		app.logger.exception(f"Failed fetching order details for order_id {order_id}")
+	return None
+
+
+def resolve_email_for_order_context(order_like: dict):
+	"""Resolve email from order context fields, then fallback to user service lookup."""
+	if not isinstance(order_like, dict):
+		return None
+
+	email = order_like.get("customer_email") or order_like.get("email") or order_like.get("user_email")
+	if email:
+		return email
+
+	user_id = order_like.get("user_id")
+	return get_user_email(user_id)
+
+
 def dispatch_drone(booking: dict, drone: dict):
 	"""Send booking + route to drone service to initiate dispatch. Returns mission_id or None."""
 	app.logger.info(f"Dispatching drone for order {booking}")
@@ -206,10 +252,14 @@ def process_confirmed_bookings():
 			if not safe:
 				app.logger.info(f"Weather unsafe for order {order_id}; delaying")
 				update_order_status(order_id, "DELAYED")
+				email = resolve_email_for_order_context(b)
+				if not email:
+					app.logger.warning(f"Skipping delayed notification: no email found for order {order_id}")
+					continue
 				publish_notification({
-					"type": "delivery_delayed",
-					"order_id": order_id,
-					"reason": "Weather conditions unsafe"
+					"emailAddress": email,
+					"emailSubject": "Delivery Delayed",
+					"emailBody": "Weather conditions unsafe"
 				})
 				continue
 
@@ -252,10 +302,6 @@ def start_rabbit_consumer():
 						order_id = payload.get('order_id')
 						app.logger.info(f"Received delivery_completed for order {order_id}")
 						update_order_status(order_id, 'COMPLETED')
-						publish_notification({
-							'type': 'delivery_success',
-							'order_id': order_id
-						})
 				except Exception:
 					app.logger.exception('Failed handling drone event')
 				ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -294,7 +340,17 @@ def start_flight_update_consumer():
 							return
 						try:
 							update_order_status(order_id, 'COMPLETED')
-							publish_notification({'type': 'delivery_completed', 'order_id': order_id, 'drone_id': drone_id})
+							order_data = get_order_by_id(order_id)
+							email = resolve_email_for_order_context(order_data or {})
+							if not email:
+								app.logger.warning(f"Skipping completed notification: no email found for order {order_id}")
+								ch.basic_ack(delivery_tag=method.delivery_tag)
+								return
+							publish_notification({
+								"emailAddress": email,
+								"emailSubject": "Delivery Completed",
+								"emailBody": "Your drone delivery has been completed."
+							})
 						except Exception:
 							app.logger.exception(f"Failed to update order {order_id} to COMPLETED")
 				except Exception:
