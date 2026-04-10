@@ -396,7 +396,7 @@ def create_order_with_payment(user_id, drone_id, pickup, dropoff, timeslot, paym
         app.logger.error(f"Error creating order: {e}")
         return None
 
-def send_notification(user_id, booking_details):
+def send_notification(user_id, pickup_pin):
     """Send booking confirmation notification"""
     try:
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
@@ -404,13 +404,13 @@ def send_notification(user_id, booking_details):
 
         # Declare notification queue if it doesn't exist
         channel.queue_declare(queue='notifications', durable=True)
-        r = requests.get(f"{USER_SERVICE_URL}/users/{user_id}", timeout=10)
+        r = requests.get(f"{USER_SERVICE_URL}/{user_id}", timeout=10)
         if r.status_code == 200:
             email = r.json().get("email")
         message = {
             "emailAddress": email,
             "emailSubject": "booking_confirmation",
-            "emailBody": "Your booking is confirmed. Pickup PIN: " + booking_details.get('pickup_pin')
+            "emailBody": "Your booking is confirmed. Pickup PIN: " + pickup_pin
         }
 
         channel.basic_publish(
@@ -722,7 +722,7 @@ def confirm_booking(json_data=None, **kwargs):
         'status': 'CONFIRMED'
     }
     
-    send_notification(user_id, booking_details)
+    # send_notification(user_id, booking_details)
 
     return {
         'booking_id': booking_id,
@@ -965,11 +965,11 @@ def stripe_webhook():
 
                                 if update_resp.status_code in [200, 201]:
                                     app.logger.info(f"Payment {payment_id} updated with order_id {order_id} and pickup_pin")
+                                    send_notification(order_data.get("user_id"), pickup_pin)
                                 else:
                                     app.logger.error(f"Failed to update payment {payment_id}: {update_resp.status_code} - {update_resp.text}")
                             except Exception as e:
                                 app.logger.exception(f"Exception updating payment record: {e}")
-
                             return {
                                 "received": True,
                                 "order_id": order_id,

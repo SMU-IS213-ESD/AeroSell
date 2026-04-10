@@ -24,7 +24,6 @@ class ClaimOut(Schema):
 
 @app.post("/submit")
 @app.doc(tags=["Claims"], summary="Submit insurance claim")
-@app.output(ClaimOut, status_code=201)
 def submit_claim():
     try:
         user_id = request.form.get("user_id")
