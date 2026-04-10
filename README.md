@@ -139,6 +139,10 @@ npm install
 npm run dev
 ```
 
+## API Docs
+
+The backend API specification is available in [swagger.json](swagger.json). Use it as the source OpenAPI document for Swagger-compatible tools and local API documentation.
+
 ## Configuration
 
 Important environment variables include:
